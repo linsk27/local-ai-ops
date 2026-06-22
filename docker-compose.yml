@@ -1,0 +1,83 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: aiops
+      POSTGRES_PASSWORD: aiops
+      POSTGRES_DB: aiops
+    expose:
+      - "5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U aiops -d aiops"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  redis:
+    image: redis:7-alpine
+    expose:
+      - "6379"
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  backend:
+    build:
+      context: ./backend
+    environment:
+      APP_ENV: local
+      APP_NAME: Local AI Ops
+      CORS_ORIGINS: http://localhost:5173,http://127.0.0.1:5173
+      DATABASE_URL: postgresql+psycopg://aiops:aiops@postgres:5432/aiops
+      REDIS_URL: redis://redis:6379/0
+      MASTER_KEY: ${MASTER_KEY:-}
+      ALIYUN_MODE: real
+      ALIYUN_DEFAULT_REGION: ${ALIYUN_DEFAULT_REGION:-cn-hangzhou}
+      AI_BASE_URL: ${AI_BASE_URL:-}
+      AI_API_KEY: ${AI_API_KEY:-}
+      AI_MODEL: ${AI_MODEL:-gpt-4.1-mini}
+    ports:
+      - "8000:8000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  worker:
+    build:
+      context: ./backend
+    command: celery -A app.worker.celery_app worker --beat --loglevel=info
+    environment:
+      APP_ENV: local
+      APP_NAME: Local AI Ops
+      DATABASE_URL: postgresql+psycopg://aiops:aiops@postgres:5432/aiops
+      REDIS_URL: redis://redis:6379/0
+      MASTER_KEY: ${MASTER_KEY:-}
+      ALIYUN_MODE: real
+      ALIYUN_DEFAULT_REGION: ${ALIYUN_DEFAULT_REGION:-cn-hangzhou}
+      AI_BASE_URL: ${AI_BASE_URL:-}
+      AI_API_KEY: ${AI_API_KEY:-}
+      AI_MODEL: ${AI_MODEL:-gpt-4.1-mini}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
+  frontend:
+    build:
+      context: ./frontend
+    environment:
+      VITE_API_BASE_URL: ${VITE_API_BASE_URL:-}
+    ports:
+      - "5173:5173"
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:
