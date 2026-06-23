@@ -898,6 +898,33 @@ textarea:hover {
   z-index: 1;
 }
 
+.alert-list-panel {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  min-block-size: 0;
+  overflow: hidden;
+}
+
+.table-panel.alert-list-panel {
+  overflow: hidden;
+}
+
+.alert-table-scroll {
+  min-block-size: 0;
+  overflow: auto;
+  border-block-end: var(--rule-thin) solid var(--color-rule);
+}
+
+.alert-table-scroll thead th {
+  position: sticky;
+  inset-block-start: 0;
+  z-index: 1;
+}
+
+.alert-table-scroll .empty-state {
+  min-block-size: 220px;
+}
+
 .table-meta-row {
   display: flex;
   align-items: center;

@@ -117,7 +117,7 @@ const copy = {
       createCheck: "创建监控项",
       checks: "监控项",
       results: "最近结果",
-      alerts: "告警中心",
+      alerts: "告警列表",
       diagnosisSource: "诊断对象",
       diagnosis: "AI 诊断建议",
       aiSettings: "AI 接口配置",
@@ -125,7 +125,7 @@ const copy = {
     },
     actions: {
       viewAssets: "查看资产",
-      openAlerts: "进入告警中心",
+      openAlerts: "进入告警列表",
       saveEncrypted: "保存并加密",
       syncAssets: "同步资产",
       details: "详情",
@@ -280,7 +280,7 @@ const copy = {
       createCheck: "Create Check",
       checks: "Checks",
       results: "Recent Results",
-      alerts: "Alert Center",
+      alerts: "Alert List",
       diagnosisSource: "Diagnosis Source",
       diagnosis: "AI Recommendations",
       aiSettings: "AI Endpoint Config",
@@ -2339,9 +2339,11 @@ export function App(): JSX.Element {
         )}
 
         {activeView === "alerts" && (
-          <section className="panel table-panel full-height">
+          <section className="panel table-panel full-height alert-list-panel">
             <PanelHeader title={t.panels.alerts} />
-            <AlertTable alerts={paginatedAlerts} onDiagnose={handleDiagnoseAlert} onUpdate={handleUpdateAlert} busyAction={busyAction} locale={locale} />
+            <div className="alert-table-scroll">
+              <AlertTable alerts={paginatedAlerts} onDiagnose={handleDiagnoseAlert} onUpdate={handleUpdateAlert} busyAction={busyAction} locale={locale} />
+            </div>
             <div className="pagination-bar">
               <span>{locale === "zh" ? `第 ${currentAlertPage} / ${alertPageTotal} 页，共 ${alerts.length} 条` : `Page ${currentAlertPage} of ${alertPageTotal}, ${alerts.length} alerts`}</span>
               <div className="pagination-buttons">
