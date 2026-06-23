@@ -1361,18 +1361,19 @@ tbody tr:hover {
   display: grid;
   gap: var(--space-2);
   min-inline-size: 0;
+  inline-size: min(360px, 100%);
 }
 
 .usage-meter {
   display: grid;
-  grid-template-columns: 34px minmax(72px, 1fr) 42px;
+  grid-template-columns: 48px 52px minmax(96px, 1fr);
   align-items: center;
   gap: var(--space-2);
-  min-block-size: 22px;
+  min-block-size: 24px;
 }
 
 .usage-meters.is-compact .usage-meter {
-  grid-template-columns: 30px minmax(44px, 1fr) 34px;
+  grid-template-columns: 30px minmax(44px, 1fr) 40px;
 }
 
 .usage-label {
@@ -1382,6 +1383,8 @@ tbody tr:hover {
 }
 
 .usage-track {
+  grid-column: 3;
+  grid-row: 1;
   overflow: clip;
   block-size: 7px;
   border-radius: 999px;
@@ -1411,6 +1414,25 @@ tbody tr:hover {
   color: var(--color-ink-muted);
   font-size: var(--text-xs);
   font-weight: 600;
+}
+
+.usage-meter strong {
+  grid-column: 2;
+  grid-row: 1;
+  text-align: start;
+}
+
+.usage-meters.is-compact {
+  inline-size: 100%;
+}
+
+.usage-meters.is-compact .usage-track {
+  grid-column: 2;
+}
+
+.usage-meters.is-compact .usage-meter strong {
+  grid-column: 3;
+  text-align: end;
 }
 
 .form-hint {
