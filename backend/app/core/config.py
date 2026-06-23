@@ -24,8 +24,15 @@ class Settings(BaseSettings):
 
     master_key: str = ""
 
+    auth_enabled: bool = True
+    admin_username: str = "admin"
+    admin_password: str = "change-me-now"
+    auth_token_ttl_minutes: int = 720
+
     aliyun_mode: str = Field(default="real", pattern="^real$")
     aliyun_default_region: str = "cn-hangzhou"
+    auto_sync_enabled: bool = False
+    auto_sync_interval_seconds: int = 900
 
     ai_base_url: str = ""
     ai_api_key: str = ""

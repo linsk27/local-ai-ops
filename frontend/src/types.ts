@@ -9,6 +9,20 @@ export interface CloudAccount {
   last_error: string | null;
 }
 
+export interface AuthSession {
+  access_token: string;
+  token_type: string;
+  expires_at: string;
+  username: string;
+  default_password: boolean;
+}
+
+export interface AuthMe {
+  username: string;
+  auth_enabled: boolean;
+  default_password: boolean;
+}
+
 export interface Asset {
   id: number;
   cloud_account_id: number | null;

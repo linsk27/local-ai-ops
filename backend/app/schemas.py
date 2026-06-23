@@ -45,6 +45,25 @@ class AccountTestResult(BaseModel):
     message: str
 
 
+class AuthLoginRequest(BaseModel):
+    username: str = Field(min_length=1, max_length=120)
+    password: str = Field(min_length=1, max_length=500)
+
+
+class AuthTokenResponse(BaseModel):
+    access_token: str
+    token_type: str = "bearer"
+    expires_at: datetime
+    username: str
+    default_password: bool = False
+
+
+class AuthMeResponse(BaseModel):
+    username: str
+    auth_enabled: bool
+    default_password: bool
+
+
 class AssetRead(OrmModel):
     id: int
     cloud_account_id: int | None = None

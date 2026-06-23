@@ -18,7 +18,7 @@ celery_app.conf.beat_schedule = {
     },
     "sync-assets-every-15-minutes": {
         "task": "app.worker.sync_assets_placeholder",
-        "schedule": 900.0,
+        "schedule": float(settings.auto_sync_interval_seconds),
     },
 }
 celery_app.conf.timezone = "UTC"
@@ -50,6 +50,9 @@ def _check_is_due(db, check: Check) -> bool:
 
 @celery_app.task(name="app.worker.sync_assets_placeholder")
 def sync_assets_placeholder() -> dict[str, str]:
-    # Asset sync is exposed as an API-triggered flow in the MVP. This heartbeat
-    # keeps Celery Beat visible and ready for scheduled sync expansion.
+    if not settings.auto_sync_enabled:
+        return {"status": "disabled"}
+    # Asset sync remains an explicit user-triggered action by default. Enabling
+    # AUTO_SYNC_ENABLED makes this heartbeat visible for future scheduled sync
+    # expansion without changing the read-only monitor worker behavior.
     return {"status": "ready"}

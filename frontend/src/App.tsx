@@ -15,6 +15,7 @@ import {
   CircleHelp,
   KeyRound,
   LockKeyhole,
+  LogOut,
   Play,
   RefreshCcw,
   Save,
@@ -27,8 +28,9 @@ import {
 } from "lucide-react";
 import type { EChartsOption } from "echarts";
 import { FormEvent, lazy, Suspense, useEffect, useMemo, useState } from "react";
-import { apiDelete, apiGet, apiPatch, apiPost, apiPut } from "./api";
-import type { AiConfig, AiConfigTestResult, Alert, Asset, BtPanelProfile, Check, CheckResult, CloudAccount, DashboardSummary, Diagnosis, ServerAccessProfile } from "./types";
+import { ApiAuthError, apiDelete, apiGet, apiPatch, apiPost, apiPut, clearAuthToken, getAuthToken, setAuthToken } from "./api";
+import { LoginPage, StartupScreen } from "./components/AuthScreens";
+import type { AiConfig, AiConfigTestResult, Alert, Asset, AuthMe, AuthSession, BtPanelProfile, Check, CheckResult, CloudAccount, DashboardSummary, Diagnosis, ServerAccessProfile } from "./types";
 
 type View = "overview" | "accounts" | "assets" | "asset-detail" | "checks" | "alerts" | "diagnosis" | "ai-settings";
 type NavView = Exclude<View, "asset-detail">;
@@ -441,6 +443,11 @@ export function App(): JSX.Element {
   const [assetPage, setAssetPage] = useState(1);
   const [assetPageSize, setAssetPageSize] = useState(10);
   const [selectedCheckFilter, setSelectedCheckFilter] = useState<CheckFilter>("all");
+  const [checkPage, setCheckPage] = useState(1);
+  const [alertPage, setAlertPage] = useState(1);
+  const [authChecked, setAuthChecked] = useState(false);
+  const [authMe, setAuthMe] = useState<AuthMe | null>(null);
+  const [loginForm, setLoginForm] = useState({ username: "admin", password: "" });
   const [selectedAsset, setSelectedAsset] = useState<Asset | null>(null);
   const [accessProfile, setAccessProfile] = useState<ServerAccessProfile>(emptyAccessProfile);
   const [btPanelProfile, setBtPanelProfile] = useState<BtPanelProfile>(emptyBtPanelProfile);
@@ -531,6 +538,19 @@ export function App(): JSX.Element {
     () => checks.filter((check) => checkMatchesFilter(check, selectedCheckFilter)),
     [checks, selectedCheckFilter]
   );
+  const listPageSize = 10;
+  const checkPageTotal = Math.max(1, Math.ceil(filteredChecks.length / listPageSize));
+  const currentCheckPage = Math.min(checkPage, checkPageTotal);
+  const paginatedChecks = useMemo(
+    () => filteredChecks.slice((currentCheckPage - 1) * listPageSize, currentCheckPage * listPageSize),
+    [filteredChecks, currentCheckPage]
+  );
+  const alertPageTotal = Math.max(1, Math.ceil(alerts.length / listPageSize));
+  const currentAlertPage = Math.min(alertPage, alertPageTotal);
+  const paginatedAlerts = useMemo(
+    () => alerts.slice((currentAlertPage - 1) * listPageSize, currentAlertPage * listPageSize),
+    [alerts, currentAlertPage]
+  );
 
   const activeDiagnosis = diagnoses.find((diagnosis) => diagnosis.locale === locale);
   const activeCheckTypeInfo = checkTypeDescription(checkForm.type, locale);
@@ -553,8 +573,20 @@ export function App(): JSX.Element {
   }, [selectedAssetType, assetPageSize]);
 
   useEffect(() => {
+    setCheckPage(1);
+  }, [selectedCheckFilter]);
+
+  useEffect(() => {
     setAssetPage((page) => Math.min(Math.max(page, 1), assetPageTotal));
   }, [assetPageTotal]);
+
+  useEffect(() => {
+    setCheckPage((page) => Math.min(Math.max(page, 1), checkPageTotal));
+  }, [checkPageTotal]);
+
+  useEffect(() => {
+    setAlertPage((page) => Math.min(Math.max(page, 1), alertPageTotal));
+  }, [alertPageTotal]);
 
   useEffect(() => {
     if (!showNotice || busyAction) {
@@ -563,6 +595,15 @@ export function App(): JSX.Element {
     const timeout = window.setTimeout(() => setNotice(""), noticeDismissDelay(notice));
     return () => window.clearTimeout(timeout);
   }, [busyAction, notice, showNotice]);
+
+  function handleAuthFailure(error?: unknown): void {
+    clearAuthToken();
+    setAuthMe(null);
+    setAuthChecked(true);
+    if (error instanceof ApiAuthError) {
+      setNotice(locale === "zh" ? "登录已过期，请重新登录。" : "Session expired. Please sign in again.");
+    }
+  }
 
   async function refreshAll(options: { quiet?: boolean; throwOnError?: boolean } = {}): Promise<void> {
     try {
@@ -598,6 +639,13 @@ export function App(): JSX.Element {
         setNotice(copy[locale].connected);
       }
     } catch (error) {
+      if (error instanceof ApiAuthError) {
+        handleAuthFailure(error);
+        if (options.throwOnError) {
+          throw error;
+        }
+        return;
+      }
       setNotice(presentNotice(error instanceof Error ? error.message : "无法连接本地 API", locale));
       if (options.throwOnError) {
         throw error;
@@ -606,8 +654,29 @@ export function App(): JSX.Element {
   }
 
   useEffect(() => {
-    void refreshAll();
+    void initializeSession();
   }, []);
+
+  async function initializeSession(): Promise<void> {
+    if (!getAuthToken()) {
+      setNotice("");
+      setAuthChecked(true);
+      return;
+    }
+    try {
+      const me = await apiGet<AuthMe>("/auth/me");
+      setAuthMe(me);
+      setAuthChecked(true);
+      await refreshAll({ quiet: true, throwOnError: true });
+    } catch (error) {
+      if (error instanceof ApiAuthError) {
+        handleAuthFailure(error);
+      } else {
+        setNotice(presentNotice(error instanceof Error ? error.message : "Unable to connect to local API", locale));
+        setAuthChecked(true);
+      }
+    }
+  }
 
   async function withBusy<T>(label: string, action: () => Promise<T>): Promise<T | undefined> {
     setBusyAction(label);
@@ -617,11 +686,55 @@ export function App(): JSX.Element {
       await refreshAll({ quiet: true });
       return result;
     } catch (error) {
+      if (error instanceof ApiAuthError) {
+        handleAuthFailure(error);
+        return undefined;
+      }
       setNotice(presentNotice(error instanceof Error ? error.message : "操作失败", locale));
       return undefined;
     } finally {
       setBusyAction("");
     }
+  }
+
+  async function handleLogin(event: FormEvent<HTMLFormElement>): Promise<void> {
+    event.preventDefault();
+    setBusyAction("login");
+    setNotice(locale === "zh" ? "正在登录..." : "Signing in...");
+    try {
+      const session = await apiPost<AuthSession>("/auth/login", {
+        username: loginForm.username.trim(),
+        password: loginForm.password
+      });
+      setAuthToken(session.access_token);
+      setAuthMe({
+        username: session.username,
+        auth_enabled: true,
+        default_password: session.default_password
+      });
+      setLoginForm((current) => ({ ...current, password: "" }));
+      setNotice(session.default_password && locale === "zh" ? "已登录。请尽快修改默认管理员密码。" : locale === "zh" ? "已登录。" : "Signed in.");
+      await refreshAll({ quiet: true, throwOnError: true });
+    } catch (error) {
+      if (error instanceof ApiAuthError) {
+        clearAuthToken();
+      }
+      setNotice(presentNotice(error instanceof Error ? error.message : "Login failed", locale));
+    } finally {
+      setBusyAction("");
+      setAuthChecked(true);
+    }
+  }
+
+  async function handleLogout(): Promise<void> {
+    try {
+      await apiPost<{ ok: boolean }>("/auth/logout");
+    } catch {
+      // Local logout is client-side; the API call is best-effort.
+    }
+    clearAuthToken();
+    setAuthMe(null);
+    setNotice("");
   }
 
   async function handleManualRefresh(): Promise<void> {
@@ -632,6 +745,10 @@ export function App(): JSX.Element {
       await refreshAll({ quiet: true, throwOnError: true });
       setNotice(zh ? "本地数据已刷新。" : "Local data refreshed.");
     } catch (error) {
+      if (error instanceof ApiAuthError) {
+        handleAuthFailure(error);
+        return;
+      }
       setNotice(presentNotice(error instanceof Error ? error.message : "刷新失败", locale));
     } finally {
       setBusyAction("");
@@ -671,6 +788,7 @@ export function App(): JSX.Element {
 
   async function handleSyncAssets(accountId?: number): Promise<void> {
     await withBusy("sync-assets", async () => {
+      setNotice(locale === "zh" ? "正在同步云资产，会调用阿里云 OpenAPI..." : "Syncing cloud assets via Alibaba Cloud OpenAPI...");
       const result = await apiPost<{ synced: number; message: string }>("/assets/sync", { account_id: accountId ?? null });
       setNotice(`资产同步完成：${result.synced} 个资源`);
       return result;
@@ -929,6 +1047,17 @@ export function App(): JSX.Element {
       } else {
         setNotice(automatic ? (locale === "zh" ? "SSH 已保存，使用率已采集。" : "SSH saved and usage collected.") : (locale === "zh" ? "使用率已采集。" : "Usage collected."));
       }
+    }
+  }
+
+  async function handleCreateDefaultChecks(asset: Asset): Promise<void> {
+    const createdChecks = await withBusy(`default-checks-${asset.id}`, async () => {
+      const items = await apiPost<Check[]>(`/assets/${asset.id}/checks/defaults`);
+      setNotice(locale === "zh" ? `默认监控已就绪：${items.length} 项` : `${items.length} default checks are ready.`);
+      return items;
+    });
+    if (createdChecks?.length) {
+      setActiveView("checks");
     }
   }
 
@@ -1445,6 +1574,10 @@ export function App(): JSX.Element {
           ])}
           {renderActionPanel(t.panels.quickActions, (
             <>
+              <button type="button" className="primary-button" onClick={() => void handleCreateDefaultChecks(asset)} disabled={busyAction === `default-checks-${asset.id}`}>
+                <Activity aria-hidden="true" />
+                {locale === "zh" ? "生成默认监控" : "Create default checks"}
+              </button>
               <button type="button" className="secondary-button" onClick={() => void handleCollectRuntime(asset)} disabled={busyAction === `collect-runtime-${asset.id}`}>
                 <TerminalSquare aria-hidden="true" />
                 {t.actions.collectRuntime}
@@ -1500,6 +1633,10 @@ export function App(): JSX.Element {
           </section>
           {renderActionPanel(locale === "zh" ? "OSS 操作" : "OSS Actions", (
             <>
+              <button type="button" className="primary-button" onClick={() => void handleCreateDefaultChecks(asset)} disabled={busyAction === `default-checks-${asset.id}`}>
+                <Activity aria-hidden="true" />
+                {locale === "zh" ? "生成默认监控" : "Create default checks"}
+              </button>
               {assetConsoleUrl(asset) && (
                 <a className="secondary-button" href={assetConsoleUrl(asset)} target="_blank" rel="noreferrer">
                   <ExternalLink aria-hidden="true" />
@@ -1524,6 +1661,10 @@ export function App(): JSX.Element {
           ])}
           {renderActionPanel(locale === "zh" ? "域名操作" : "Domain Actions", (
             <>
+              <button type="button" className="primary-button" onClick={() => void handleCreateDefaultChecks(asset)} disabled={busyAction === `default-checks-${asset.id}`}>
+                <Activity aria-hidden="true" />
+                {locale === "zh" ? "生成默认监控" : "Create default checks"}
+              </button>
               <button type="button" className="secondary-button" onClick={() => handleCreateCheckFromAsset(asset, "http")}>
                 <Globe2 aria-hidden="true" />
                 {locale === "zh" ? "创建 HTTPS 探活" : "Create HTTPS probe"}
@@ -1564,6 +1705,10 @@ export function App(): JSX.Element {
           </section>
           {renderActionPanel(locale === "zh" ? "DNS 操作" : "DNS Actions", (
             <>
+              <button type="button" className="primary-button" onClick={() => void handleCreateDefaultChecks(asset)} disabled={busyAction === `default-checks-${asset.id}`}>
+                <Activity aria-hidden="true" />
+                {locale === "zh" ? "生成默认监控" : "Create default checks"}
+              </button>
               <button type="button" className="secondary-button" onClick={() => handleCreateCheckFromAsset(asset, "http")}>
                 <Globe2 aria-hidden="true" />
                 {locale === "zh" ? "创建网站探活" : "Create HTTP probe"}
@@ -1612,6 +1757,24 @@ export function App(): JSX.Element {
       return renderDnsDetail(asset);
     }
     return renderGenericAssetDetail(asset);
+  }
+
+  if (!authChecked) {
+    return <StartupScreen locale={locale} />;
+  }
+
+  if (!authMe) {
+    return (
+      <LoginPage
+        locale={locale}
+        notice={showNotice ? notice : ""}
+        busy={busyAction === "login"}
+        form={loginForm}
+        onFormChange={setLoginForm}
+        onSubmit={handleLogin}
+        onLocaleChange={setLocale}
+      />
+    );
   }
 
   return (
@@ -1663,6 +1826,15 @@ export function App(): JSX.Element {
                 <span>{notice}</span>
               </div>
             )}
+            {authMe.default_password && (
+              <span className="security-warning" title={locale === "zh" ? "请在 .env 中修改 ADMIN_PASSWORD 后重启服务。" : "Change ADMIN_PASSWORD in .env and restart the service."}>
+                {locale === "zh" ? "默认密码" : "Default password"}
+              </span>
+            )}
+            <button type="button" className="secondary-button compact-button topbar-user" onClick={() => void handleLogout()} title={locale === "zh" ? "退出本地管理员登录" : "Sign out"}>
+              <LogOut aria-hidden="true" />
+              <span>{authMe.username}</span>
+            </button>
             <div className="segmented locale-switch" role="group" aria-label="Language">
               <button type="button" className={locale === "zh" ? "is-selected" : ""} onClick={() => setLocale("zh")}>中文</button>
               <button type="button" className={locale === "en" ? "is-selected" : ""} onClick={() => setLocale("en")}>EN</button>
@@ -2035,7 +2207,7 @@ export function App(): JSX.Element {
                       </td>
                     </tr>
                   )}
-                  {filteredChecks.map((check) => (
+                  {paginatedChecks.map((check) => (
                     <tr key={check.id}>
                       <td>
                         <div className="check-name-cell">
@@ -2086,6 +2258,19 @@ export function App(): JSX.Element {
                   ))}
                 </tbody>
               </table>
+              <div className="pagination-bar">
+                <span>{locale === "zh" ? `第 ${currentCheckPage} / ${checkPageTotal} 页，共 ${filteredChecks.length} 项` : `Page ${currentCheckPage} of ${checkPageTotal}, ${filteredChecks.length} checks`}</span>
+                <div className="pagination-buttons">
+                  <button type="button" className="secondary-button compact-button" onClick={() => setCheckPage((page) => Math.max(1, page - 1))} disabled={currentCheckPage <= 1}>
+                    <ArrowLeft aria-hidden="true" />
+                    {locale === "zh" ? "上一页" : "Prev"}
+                  </button>
+                  <button type="button" className="secondary-button compact-button" onClick={() => setCheckPage((page) => Math.min(checkPageTotal, page + 1))} disabled={currentCheckPage >= checkPageTotal}>
+                    {locale === "zh" ? "下一页" : "Next"}
+                    <ArrowRight aria-hidden="true" />
+                  </button>
+                </div>
+              </div>
             </section>
 
             <section className="panel results-panel">
@@ -2107,7 +2292,20 @@ export function App(): JSX.Element {
         {activeView === "alerts" && (
           <section className="panel table-panel full-height">
             <PanelHeader title={t.panels.alerts} />
-            <AlertTable alerts={alerts} onDiagnose={handleDiagnoseAlert} onUpdate={handleUpdateAlert} busyAction={busyAction} locale={locale} />
+            <AlertTable alerts={paginatedAlerts} onDiagnose={handleDiagnoseAlert} onUpdate={handleUpdateAlert} busyAction={busyAction} locale={locale} />
+            <div className="pagination-bar">
+              <span>{locale === "zh" ? `第 ${currentAlertPage} / ${alertPageTotal} 页，共 ${alerts.length} 条` : `Page ${currentAlertPage} of ${alertPageTotal}, ${alerts.length} alerts`}</span>
+              <div className="pagination-buttons">
+                <button type="button" className="secondary-button compact-button" onClick={() => setAlertPage((page) => Math.max(1, page - 1))} disabled={currentAlertPage <= 1}>
+                  <ArrowLeft aria-hidden="true" />
+                  {locale === "zh" ? "上一页" : "Prev"}
+                </button>
+                <button type="button" className="secondary-button compact-button" onClick={() => setAlertPage((page) => Math.min(alertPageTotal, page + 1))} disabled={currentAlertPage >= alertPageTotal}>
+                  {locale === "zh" ? "下一页" : "Next"}
+                  <ArrowRight aria-hidden="true" />
+                </button>
+              </div>
+            </div>
           </section>
         )}
 

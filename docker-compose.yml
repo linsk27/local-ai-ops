@@ -35,8 +35,14 @@ services:
       DATABASE_URL: postgresql+psycopg://aiops:aiops@postgres:5432/aiops
       REDIS_URL: redis://redis:6379/0
       MASTER_KEY: ${MASTER_KEY:-}
+      AUTH_ENABLED: ${AUTH_ENABLED:-true}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-change-me-now}
+      AUTH_TOKEN_TTL_MINUTES: ${AUTH_TOKEN_TTL_MINUTES:-720}
       ALIYUN_MODE: real
       ALIYUN_DEFAULT_REGION: ${ALIYUN_DEFAULT_REGION:-cn-hangzhou}
+      AUTO_SYNC_ENABLED: ${AUTO_SYNC_ENABLED:-false}
+      AUTO_SYNC_INTERVAL_SECONDS: ${AUTO_SYNC_INTERVAL_SECONDS:-900}
       AI_BASE_URL: ${AI_BASE_URL:-}
       AI_API_KEY: ${AI_API_KEY:-}
       AI_MODEL: ${AI_MODEL:-gpt-4.1-mini}
@@ -58,8 +64,14 @@ services:
       DATABASE_URL: postgresql+psycopg://aiops:aiops@postgres:5432/aiops
       REDIS_URL: redis://redis:6379/0
       MASTER_KEY: ${MASTER_KEY:-}
+      AUTH_ENABLED: ${AUTH_ENABLED:-true}
+      ADMIN_USERNAME: ${ADMIN_USERNAME:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-change-me-now}
+      AUTH_TOKEN_TTL_MINUTES: ${AUTH_TOKEN_TTL_MINUTES:-720}
       ALIYUN_MODE: real
       ALIYUN_DEFAULT_REGION: ${ALIYUN_DEFAULT_REGION:-cn-hangzhou}
+      AUTO_SYNC_ENABLED: ${AUTO_SYNC_ENABLED:-false}
+      AUTO_SYNC_INTERVAL_SECONDS: ${AUTO_SYNC_INTERVAL_SECONDS:-900}
       AI_BASE_URL: ${AI_BASE_URL:-}
       AI_API_KEY: ${AI_API_KEY:-}
       AI_MODEL: ${AI_MODEL:-gpt-4.1-mini}

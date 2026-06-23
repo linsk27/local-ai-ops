@@ -1,10 +1,11 @@
 from datetime import datetime, timezone
 from uuid import uuid4
 
-from fastapi import APIRouter, HTTPException, Query
+from fastapi import APIRouter, HTTPException, Query, Request
 from sqlalchemy import delete, desc, func, select, update
 
 from app.api.deps import DbSession
+from app.core.auth import create_access_token, is_default_admin_password, user_from_request, verify_admin_password
 from app.core.config import get_settings
 from app.core.security import decrypt_secret, encrypt_secret, mask_value, redact_text
 from app.models import Alert, AlertRule, Asset, AuditLog, Check, CheckResult, CloudAccount, EncryptedSecret, ServerAccessProfile
@@ -17,6 +18,9 @@ from app.schemas import (
     AlertUpdate,
     AssetOpsUpdate,
     AssetRead,
+    AuthLoginRequest,
+    AuthMeResponse,
+    AuthTokenResponse,
     BtPanelPasswordReveal,
     BtPanelProfileRead,
     BtPanelProfileUpdate,
@@ -42,6 +46,40 @@ from app.services.check_runner import execute_check
 
 
 router = APIRouter()
+
+
+@router.post("/auth/login", response_model=AuthTokenResponse)
+def login(payload: AuthLoginRequest) -> AuthTokenResponse:
+    settings = get_settings()
+    if not settings.auth_enabled:
+        token, expires_at = create_access_token(settings.admin_username)
+        return AuthTokenResponse(
+            access_token=token,
+            expires_at=datetime.fromtimestamp(expires_at, tz=timezone.utc),
+            username=settings.admin_username,
+            default_password=False,
+        )
+    if payload.username != settings.admin_username or not verify_admin_password(payload.password):
+        raise HTTPException(status_code=401, detail="Invalid username or password")
+    token, expires_at = create_access_token(payload.username)
+    return AuthTokenResponse(
+        access_token=token,
+        expires_at=datetime.fromtimestamp(expires_at, tz=timezone.utc),
+        username=payload.username,
+        default_password=is_default_admin_password(),
+    )
+
+
+@router.get("/auth/me", response_model=AuthMeResponse)
+def me(request: Request) -> AuthMeResponse:
+    settings = get_settings()
+    username = user_from_request(request)
+    return AuthMeResponse(username=username, auth_enabled=settings.auth_enabled, default_password=is_default_admin_password())
+
+
+@router.post("/auth/logout")
+def logout() -> dict[str, bool]:
+    return {"ok": True}
 
 
 @router.get("/settings/ai", response_model=AiConfigRead)
@@ -475,6 +513,28 @@ def collect_asset_runtime(asset_id: int, db: DbSession) -> dict:
     return {"asset": _asset_read(asset, metrics), "results": results}
 
 
+@router.post("/assets/{asset_id}/checks/defaults", response_model=list[CheckRead])
+def create_default_checks(asset_id: int, db: DbSession) -> list[dict]:
+    asset = _get_asset_or_404(db, asset_id)
+    checks: list[Check] = []
+    created = 0
+    for spec in _default_check_specs(asset):
+        check, was_created = _get_or_create_check(db, asset, spec)
+        checks.append(check)
+        if was_created:
+            created += 1
+    db.add(
+        AuditLog(
+            action="check.create_defaults",
+            resource_type="asset",
+            resource_id=str(asset.id),
+            metadata_json={"created": created, "total": len(checks)},
+        )
+    )
+    db.commit()
+    return [_check_read(db, check) for check in checks]
+
+
 @router.post("/checks", response_model=CheckRead)
 def create_check(payload: CheckCreate, db: DbSession) -> dict:
     check = Check(**payload.model_dump())
@@ -594,6 +654,116 @@ def create_diagnosis(payload: DiagnosisRequest, db: DbSession):
     if not payload.alert_id and not payload.asset_id:
         raise HTTPException(status_code=400, detail="alert_id or asset_id is required")
     return generate_diagnosis(db, payload.alert_id, payload.asset_id, payload.locale)
+
+
+def _default_check_specs(asset: Asset) -> list[dict]:
+    host = _default_asset_host(asset)
+    specs: list[dict] = []
+    if asset.type in {"ecs", "swas", "server"}:
+        if host:
+            specs.extend(
+                [
+                    {
+                        "name": f"{asset.name} SSH reachability",
+                        "type": "ssh",
+                        "target": f"{host}:22",
+                        "interval_seconds": 300,
+                        "timeout_seconds": 5,
+                        "threshold": None,
+                        "failure_threshold": 2,
+                        "config_json": {},
+                    },
+                    {
+                        "name": f"{asset.name} TCP 22",
+                        "type": "tcp",
+                        "target": f"{host}:22",
+                        "interval_seconds": 300,
+                        "timeout_seconds": 5,
+                        "threshold": None,
+                        "failure_threshold": 2,
+                        "config_json": {},
+                    },
+                ]
+            )
+        runtime_config = {"region": asset.region}
+        if asset.type == "ecs":
+            runtime_config["instance_id"] = asset.external_id
+        specs.extend(
+            [
+                {
+                    "name": f"{asset.name} disk usage",
+                    "type": "cloud_assistant",
+                    "target": "df -h",
+                    "interval_seconds": 300,
+                    "timeout_seconds": 10,
+                    "threshold": 90,
+                    "failure_threshold": 1,
+                    "config_json": runtime_config,
+                },
+                {
+                    "name": f"{asset.name} memory usage",
+                    "type": "cloud_assistant",
+                    "target": "free -m",
+                    "interval_seconds": 300,
+                    "timeout_seconds": 10,
+                    "threshold": 90,
+                    "failure_threshold": 1,
+                    "config_json": runtime_config,
+                },
+            ]
+        )
+        return specs
+    if asset.type in {"domain", "dns"}:
+        domain = asset.name.strip()
+        if domain:
+            specs.append(
+                {
+                    "name": f"{asset.name} HTTPS health",
+                    "type": "http",
+                    "target": f"https://{domain}",
+                    "interval_seconds": 300,
+                    "timeout_seconds": 8,
+                    "threshold": None,
+                    "failure_threshold": 2,
+                    "config_json": {},
+                }
+            )
+    if asset.type == "oss":
+        endpoint = _metadata_text(asset.metadata_json or {}, ["extranet_endpoint", "endpoint", "bucket_endpoint"])
+        if not endpoint and asset.region and asset.region != "global":
+            endpoint = f"https://{asset.name}.oss-{asset.region}.aliyuncs.com"
+        if endpoint:
+            if not endpoint.startswith(("http://", "https://")):
+                endpoint = f"https://{endpoint}"
+            specs.append(
+                {
+                    "name": f"{asset.name} bucket endpoint",
+                    "type": "http",
+                    "target": endpoint,
+                    "interval_seconds": 600,
+                    "timeout_seconds": 8,
+                    "threshold": None,
+                    "failure_threshold": 2,
+                    "config_json": {"purpose": "oss_endpoint_probe"},
+                }
+            )
+    return specs
+
+
+def _get_or_create_check(db: DbSession, asset: Asset, spec: dict) -> tuple[Check, bool]:
+    check = db.scalar(
+        select(Check).where(
+            Check.asset_id == asset.id,
+            Check.type == spec["type"],
+            Check.target == spec["target"],
+        )
+    )
+    if check:
+        return check, False
+    check = Check(asset_id=asset.id, **spec)
+    db.add(check)
+    db.flush()
+    return check, True
 
 
 def _asset_read(asset: Asset, runtime_metrics: dict | None = None) -> dict:
@@ -843,6 +1013,18 @@ def _default_asset_host(asset: Asset) -> str:
             return value.strip()
         if isinstance(value, list) and value and isinstance(value[0], str):
             return value[0].strip()
+    return ""
+
+
+def _metadata_text(metadata: dict, keys: list[str]) -> str:
+    for key in keys:
+        value = metadata.get(key)
+        if isinstance(value, str) and value.strip():
+            return value.strip()
+        if isinstance(value, list):
+            first = next((item.strip() for item in value if isinstance(item, str) and item.strip()), "")
+            if first:
+                return first
     return ""
 
 

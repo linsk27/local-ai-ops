@@ -449,6 +449,62 @@ def test_runtime_collection_runs_disk_and_memory_checks_for_ssh_profile(monkeypa
         assert all(item["password"] == "asset-ssh-password" for item in captured)
 
 
+def test_default_checks_are_created_idempotently_for_server_asset() -> None:
+    with TestClient(app) as client:
+        external_id = f"swas-defaults-{uuid4().hex[:8]}"
+        with SessionLocal() as db:
+            asset = Asset(
+                provider="aliyun",
+                type="swas",
+                name="defaults-server",
+                external_id=external_id,
+                region="cn-guangzhou",
+                status="running",
+                metadata_json={"public_ip_address": "203.0.113.15"},
+            )
+            db.add(asset)
+            db.commit()
+            db.refresh(asset)
+            asset_id = asset.id
+
+        first_response = client.post(f"/api/assets/{asset_id}/checks/defaults")
+        assert first_response.status_code == 200
+        first_checks = first_response.json()
+        assert {item["type"] for item in first_checks} == {"ssh", "tcp", "cloud_assistant"}
+        assert {item["target"] for item in first_checks} == {"203.0.113.15:22", "df -h", "free -m"}
+
+        second_response = client.post(f"/api/assets/{asset_id}/checks/defaults")
+        assert second_response.status_code == 200
+        second_checks = second_response.json()
+        assert [item["id"] for item in second_checks] == [item["id"] for item in first_checks]
+
+
+def test_default_checks_for_domain_create_https_probe() -> None:
+    with TestClient(app) as client:
+        external_id = f"domain-defaults-{uuid4().hex[:8]}"
+        with SessionLocal() as db:
+            asset = Asset(
+                provider="aliyun",
+                type="domain",
+                name="example.test",
+                external_id=external_id,
+                region="global",
+                status="active",
+                metadata_json={},
+            )
+            db.add(asset)
+            db.commit()
+            db.refresh(asset)
+            asset_id = asset.id
+
+        response = client.post(f"/api/assets/{asset_id}/checks/defaults")
+        assert response.status_code == 200
+        checks = response.json()
+        assert len(checks) == 1
+        assert checks[0]["type"] == "http"
+        assert checks[0]["target"] == "https://example.test"
+
+
 def test_check_can_be_deleted_without_removing_existing_alert(monkeypatch) -> None:
     def fake_run_tcp_check(target: str, timeout_seconds: int) -> ProbeResult:
         return ProbeResult("failed", None, None, "connection refused", {"target": target, "timeout_seconds": timeout_seconds})
