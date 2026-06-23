@@ -3720,7 +3720,22 @@ function usageTone(value: number): string {
   return "is-good";
 }
 
-const chartPalette = ["#007764", "#4f7f96", "#d39a2d", "#3f8f6b", "#7b6fb0", "#b85f5c", "#5c7c89"];
+const chartPalette = ["#006f5f", "#3f7d96", "#d59a25", "#2f8f67", "#7267a8", "#b75a55", "#5f7e8a"];
+const chartInk = "#061923";
+const chartMuted = "#48616a";
+const chartSubtle = "#72878f";
+const chartSurface = "#f8fbfb";
+const chartTrack = "#e4eef0";
+const chartTooltipStyle = {
+  backgroundColor: "rgba(248, 251, 251, 0.96)",
+  borderColor: "#a8c3ca",
+  borderWidth: 1,
+  padding: [10, 12],
+  textStyle: { color: chartInk, fontSize: 12 },
+  extraCssText: "box-shadow: 0 12px 32px rgba(7, 28, 38, 0.12); border-radius: 6px;"
+};
+const chartAxisLabel = { color: chartMuted, fontSize: 11 };
+const chartSplitLine = { lineStyle: { color: "#d9e6e9", type: "dashed" as const } };
 
 function summarizeRegions(assets: Asset[]): ChartDatum[] {
   const counts = assets.reduce<Record<string, number>>((acc, asset) => {
@@ -3749,22 +3764,56 @@ function upcomingServerExpiries(assets: Asset[]): ExpiryDatum[] {
 }
 
 function buildAssetDistributionOption(rows: ChartDatum[], locale: Locale): EChartsOption {
+  const total = rows.reduce((sum, row) => sum + row.value, 0);
   return {
     color: chartPalette,
-    tooltip: { trigger: "item" },
+    tooltip: {
+      ...chartTooltipStyle,
+      trigger: "item",
+      formatter: "{b}<br/><strong>{c}</strong> ({d}%)"
+    },
+    title: {
+      text: String(total),
+      subtext: locale === "zh" ? "资源" : "Assets",
+      left: "32%",
+      top: "40%",
+      textAlign: "center",
+      textStyle: { color: chartInk, fontSize: 28, fontWeight: 800, fontFamily: "Aptos Display, Segoe UI, sans-serif" },
+      subtextStyle: { color: chartMuted, fontSize: 12 }
+    },
     legend: {
-      bottom: 0,
-      icon: "circle",
-      textStyle: { color: "#48616a" }
+      right: 8,
+      top: "middle",
+      orient: "vertical",
+      icon: "roundRect",
+      itemWidth: 10,
+      itemHeight: 10,
+      itemGap: 12,
+      textStyle: { color: chartMuted, fontSize: 12 }
     },
     series: [
       {
         name: locale === "zh" ? "资产" : "Assets",
         type: "pie",
-        radius: ["52%", "72%"],
-        center: ["50%", "42%"],
+        radius: ["55%", "76%"],
+        center: ["32%", "50%"],
         avoidLabelOverlap: true,
-        label: { formatter: "{b}\n{c}", color: "#061923" },
+        padAngle: 2,
+        itemStyle: {
+          borderRadius: 8,
+          borderColor: chartSurface,
+          borderWidth: 3
+        },
+        label: { show: false },
+        labelLine: { show: false },
+        emphasis: {
+          scale: true,
+          scaleSize: 6,
+          itemStyle: {
+            shadowBlur: 18,
+            shadowColor: "rgba(7, 28, 38, 0.14)"
+          }
+        },
         data: rows
       }
     ]
@@ -3772,27 +3821,63 @@ function buildAssetDistributionOption(rows: ChartDatum[], locale: Locale): EChar
 }
 
 function buildRegionDistributionOption(rows: ChartDatum[], locale: Locale): EChartsOption {
+  const labels = rows.map((row) => row.name === "other" ? (locale === "zh" ? "其他" : "Other") : row.name);
   return {
     color: [chartPalette[0]],
-    grid: { left: 36, right: 16, top: 22, bottom: 56 },
-    tooltip: { trigger: "axis" },
-    xAxis: {
-      type: "category",
-      data: rows.map((row) => row.name === "other" ? (locale === "zh" ? "其他" : "Other") : row.name),
-      axisLabel: { color: "#48616a", interval: 0, rotate: rows.length > 6 ? 25 : 0 },
-      axisTick: { show: false }
+    grid: { left: 104, right: 42, top: 14, bottom: 16, containLabel: false },
+    tooltip: {
+      ...chartTooltipStyle,
+      trigger: "axis",
+      axisPointer: { type: "shadow", shadowStyle: { color: "rgba(0, 111, 95, 0.08)" } },
+      formatter: (params: unknown) => {
+        const item = Array.isArray(params) ? params[0] as { name: string; value: number } : null;
+        return item ? `${item.name}<br/><strong>${item.value}</strong> ${locale === "zh" ? "个资源" : "assets"}` : "";
+      }
     },
-    yAxis: {
+    xAxis: {
       type: "value",
       minInterval: 1,
-      axisLabel: { color: "#48616a" },
-      splitLine: { lineStyle: { color: "#c4d7db" } }
+      axisLabel: { show: false },
+      axisLine: { show: false },
+      axisTick: { show: false },
+      splitLine: chartSplitLine
+    },
+    yAxis: {
+      type: "category",
+      inverse: true,
+      data: labels,
+      axisLabel: { ...chartAxisLabel, color: chartInk, width: 92, overflow: "truncate", margin: 12 },
+      axisLine: { show: false },
+      axisTick: { show: false }
     },
     series: [
       {
         name: locale === "zh" ? "资源数" : "Assets",
         type: "bar",
-        barMaxWidth: 34,
+        barWidth: 13,
+        showBackground: true,
+        backgroundStyle: { color: chartTrack, borderRadius: 10 },
+        itemStyle: {
+          borderRadius: 10,
+          color: {
+            type: "linear",
+            x: 0,
+            y: 0,
+            x2: 1,
+            y2: 0,
+            colorStops: [
+              { offset: 0, color: "#006f5f" },
+              { offset: 1, color: "#31a083" }
+            ]
+          }
+        },
+        label: {
+          show: true,
+          position: "right",
+          color: chartMuted,
+          fontSize: 12,
+          formatter: "{c}"
+        },
         data: rows.map((row) => row.value)
       }
     ]
@@ -3801,7 +3886,12 @@ function buildRegionDistributionOption(rows: ChartDatum[], locale: Locale): ECha
 
 function buildUptimeOption(value: number, locale: Locale): EChartsOption {
   const normalized = Number.isFinite(value) ? Math.max(0, Math.min(100, Number(value.toFixed(2)))) : 0;
+  const toneColor = normalized >= 99 ? chartPalette[0] : normalized >= 95 ? "#d59a25" : "#b75a55";
   return {
+    tooltip: {
+      ...chartTooltipStyle,
+      formatter: `${locale === "zh" ? "网站可用率" : "Website uptime"}<br/><strong>${normalized}%</strong>`
+    },
     series: [
       {
         type: "gauge",
@@ -3809,34 +3899,40 @@ function buildUptimeOption(value: number, locale: Locale): EChartsOption {
         max: 100,
         startAngle: 210,
         endAngle: -30,
-        radius: "94%",
-        center: ["50%", "58%"],
-        progress: { show: true, width: 12, itemStyle: { color: normalized >= 99 ? chartPalette[0] : normalized >= 95 ? "#d39a2d" : "#b85f5c" } },
+        radius: "92%",
+        center: ["50%", "57%"],
+        progress: {
+          show: true,
+          width: 14,
+          roundCap: true,
+          itemStyle: { color: toneColor }
+        },
         pointer: { show: false },
         axisLine: {
           lineStyle: {
-            width: 12,
+            width: 14,
             color: [
               [0.95, "#f0cbc7"],
               [0.99, "#f2d696"],
-              [1, "#bce7d2"]
+              [1, "#c6ead8"]
             ]
           }
         },
         axisTick: { show: false },
         splitLine: { show: false },
-        axisLabel: { distance: 16, color: "#48616a", fontSize: 11 },
+        axisLabel: { distance: 18, color: chartSubtle, fontSize: 10 },
         detail: {
           valueAnimation: true,
           formatter: "{value}%",
-          color: "#061923",
-          fontSize: 28,
-          fontWeight: 700,
-          offsetCenter: [0, "4%"]
+          color: chartInk,
+          fontSize: 32,
+          fontWeight: 800,
+          fontFamily: "Aptos Display, Segoe UI, sans-serif",
+          offsetCenter: [0, "0%"]
         },
         title: {
-          offsetCenter: [0, "34%"],
-          color: "#48616a",
+          offsetCenter: [0, "35%"],
+          color: chartMuted,
           fontSize: 12
         },
         data: [{ value: normalized, name: locale === "zh" ? "可用率" : "Uptime" }]
@@ -3850,37 +3946,36 @@ function buildExpiryOption(rows: ExpiryDatum[], locale: Locale): EChartsOption {
   const axisMax = Math.max(30, Math.ceil((maxDays + 6) / 5) * 5);
   return {
     color: [chartPalette[0]],
-    grid: { left: 156, right: 86, top: 8, bottom: 10, containLabel: false },
+    grid: { left: 132, right: 70, top: 8, bottom: 14, containLabel: false },
     tooltip: {
+      ...chartTooltipStyle,
       trigger: "axis",
-      backgroundColor: "#f7fbfb",
-      borderColor: "#adc8ce",
-      textStyle: { color: "#061923" },
+      axisPointer: { type: "shadow", shadowStyle: { color: "rgba(0, 111, 95, 0.08)" } },
       formatter: (params: unknown) => {
         const item = Array.isArray(params) ? params[0] as { name: string; data: ExpiryDatum & { value: number } } : null;
         if (!item) {
           return "";
         }
-        return `${item.data.name}<br/>${locale === "zh" ? "地域" : "Region"}: ${item.data.region}<br/>${locale === "zh" ? "到期" : "Expires"}: ${item.data.date}<br/>${locale === "zh" ? "剩余" : "Days left"}: ${item.data.days}`;
+        return `${item.data.name}<br/>${locale === "zh" ? "地域" : "Region"}: ${item.data.region}<br/>${locale === "zh" ? "到期" : "Expires"}: ${item.data.date}<br/>${locale === "zh" ? "剩余" : "Days left"}: <strong>${item.data.days}</strong>`;
       }
     },
     xAxis: {
       type: "value",
       max: axisMax,
       minInterval: 1,
-      axisLabel: { show: false },
+      axisLabel: { ...chartAxisLabel, formatter: (value: number) => `${value}d` },
       axisLine: { show: false },
       axisTick: { show: false },
-      splitLine: { show: false }
+      splitLine: chartSplitLine
     },
     yAxis: {
       type: "category",
       inverse: true,
       data: rows.map((row) => shortenAssetName(row.name)),
       axisLabel: {
-        color: "#061923",
+        color: chartInk,
         overflow: "truncate",
-        width: 142,
+        width: 112,
         fontSize: 12,
         margin: 12
       },
@@ -3892,10 +3987,10 @@ function buildExpiryOption(rows: ExpiryDatum[], locale: Locale): EChartsOption {
         name: locale === "zh" ? "剩余天数" : "Days left",
         type: "bar",
         barWidth: 12,
-        barCategoryGap: "46%",
+        barCategoryGap: "42%",
         showBackground: true,
         backgroundStyle: {
-          color: "#e5eef0",
+          color: chartTrack,
           borderRadius: 8
         },
         itemStyle: {
@@ -3905,7 +4000,7 @@ function buildExpiryOption(rows: ExpiryDatum[], locale: Locale): EChartsOption {
           show: true,
           position: "right",
           distance: 8,
-          color: "#48616a",
+          color: chartMuted,
           fontSize: 12,
           formatter: (params: unknown) => {
             const item = (params as { data?: ExpiryDatum & { value: number } }).data;
