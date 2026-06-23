@@ -3531,6 +3531,24 @@ function UsageMeters({ asset, locale, compact = false }: { asset: Asset; locale:
     );
   }
 
+  if (!compact) {
+    return (
+      <div className="usage-summary">
+        {items.map((item) => (
+          <div className="usage-summary-item" key={item.key} title={runtimeMetricTitle(asset, item.key, locale)}>
+            <div className="usage-summary-head">
+              <span>{item.label}</span>
+              <strong>{item.value}%</strong>
+            </div>
+            <span className="usage-track">
+              <span className={`usage-fill ${usageTone(item.value ?? 0)}`} style={{ inlineSize: `${Math.min(100, Math.max(0, item.value ?? 0))}%` }} />
+            </span>
+          </div>
+        ))}
+      </div>
+    );
+  }
+
   return (
     <div className={compact ? "usage-meters is-compact" : "usage-meters"}>
       {items.map((item) => (
