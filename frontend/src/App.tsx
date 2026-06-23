@@ -27,7 +27,7 @@ import {
   XCircle
 } from "lucide-react";
 import type { EChartsOption } from "echarts";
-import { FormEvent, lazy, Suspense, useEffect, useMemo, useState } from "react";
+import { FormEvent, lazy, Suspense, useEffect, useMemo, useRef, useState } from "react";
 import { ApiAuthError, apiDelete, apiGet, apiPatch, apiPost, apiPut, clearAuthToken, getAuthToken, setAuthToken } from "./api";
 import { LoginPage, StartupScreen } from "./components/AuthScreens";
 import type { AiConfig, AiConfigTestResult, Alert, Asset, AuthMe, AuthSession, BtPanelProfile, Check, CheckResult, CloudAccount, DashboardSummary, Diagnosis, ServerAccessProfile } from "./types";
@@ -41,6 +41,13 @@ type ChartDatum = { name: string; value: number };
 type ExpiryDatum = { name: string; days: number; date: string; region: string };
 type RuntimeCollection = { asset: Asset; results: CheckResult[] };
 type AssetFilter = "all" | "server" | "oss" | "domain" | "dns";
+type ConfirmDialogOptions = {
+  title: string;
+  message: string;
+  confirmLabel: string;
+  cancelLabel: string;
+  tone?: "default" | "danger";
+};
 
 const assetFilters: AssetFilter[] = ["all", "server", "oss", "domain", "dns"];
 const assetPageSizeOptions = [10, 20, 50];
@@ -460,6 +467,8 @@ export function App(): JSX.Element {
   const [accessModalOpen, setAccessModalOpen] = useState(false);
   const [btPanelModalOpen, setBtPanelModalOpen] = useState(false);
   const [aiConfigModalOpen, setAiConfigModalOpen] = useState(false);
+  const [confirmDialog, setConfirmDialog] = useState<ConfirmDialogOptions | null>(null);
+  const confirmResolver = useRef<((confirmed: boolean) => void) | null>(null);
   const [accountForm, setAccountForm] = useState({
     name: "",
     access_key_id: "",
@@ -795,12 +804,32 @@ export function App(): JSX.Element {
     });
   }
 
+  function requestConfirm(options: ConfirmDialogOptions): Promise<boolean> {
+    if (confirmResolver.current) {
+      confirmResolver.current(false);
+    }
+    setConfirmDialog(options);
+    return new Promise((resolve) => {
+      confirmResolver.current = resolve;
+    });
+  }
+
+  function resolveConfirm(confirmed: boolean): void {
+    confirmResolver.current?.(confirmed);
+    confirmResolver.current = null;
+    setConfirmDialog(null);
+  }
+
   async function handleDeleteAccount(account: CloudAccount): Promise<void> {
-    const confirmed = window.confirm(
-      locale === "zh"
-        ? `删除云账号 ${account.name}？已同步资产会保留，但会解除账号关联。`
-        : `Delete cloud account ${account.name}? Synced assets stay, but the account linkage is removed.`
-    );
+    const confirmed = await requestConfirm({
+      title: locale === "zh" ? "删除云账号" : "Delete cloud account",
+      message: locale === "zh"
+        ? `确定删除云账号「${account.name}」？已同步资产会保留，但会解除账号关联。`
+        : `Delete cloud account "${account.name}"? Synced assets stay, but the account linkage is removed.`,
+      confirmLabel: locale === "zh" ? "删除账号" : "Delete account",
+      cancelLabel: locale === "zh" ? "取消" : "Cancel",
+      tone: "danger"
+    });
     if (!confirmed) {
       return;
     }
@@ -821,11 +850,15 @@ export function App(): JSX.Element {
       setNotice(locale === "zh" ? "当前没有错误状态的云账号。" : "There are no cloud accounts in error state.");
       return;
     }
-    const confirmed = window.confirm(
-      locale === "zh"
-        ? `删除 ${failedAccounts.length} 个错误状态云账号？已同步资产会保留，但会解除账号关联。`
-        : `Delete ${failedAccounts.length} failed cloud accounts? Synced assets stay, but account links are removed.`
-    );
+    const confirmed = await requestConfirm({
+      title: locale === "zh" ? "删除错误账号" : "Delete failed accounts",
+      message: locale === "zh"
+        ? `确定删除 ${failedAccounts.length} 个错误状态云账号？已同步资产会保留，但会解除账号关联。`
+        : `Delete ${failedAccounts.length} failed cloud accounts? Synced assets stay, but account links are removed.`,
+      confirmLabel: locale === "zh" ? "删除错误账号" : "Delete failed accounts",
+      cancelLabel: locale === "zh" ? "取消" : "Cancel",
+      tone: "danger"
+    });
     if (!confirmed) {
       return;
     }
@@ -1145,7 +1178,15 @@ export function App(): JSX.Element {
   }
 
   async function handleDeleteCheck(check: Check): Promise<void> {
-    const confirmed = window.confirm(locale === "zh" ? `删除监控项「${check.name}」？执行结果会一并清理，已产生的告警会保留。` : `Delete check "${check.name}"? Results will be removed and existing alerts will be kept.`);
+    const confirmed = await requestConfirm({
+      title: locale === "zh" ? "删除监控项" : "Delete check",
+      message: locale === "zh"
+        ? `确定删除监控项「${check.name}」？执行结果会一并清理，已产生的告警会保留。`
+        : `Delete check "${check.name}"? Results will be removed and existing alerts will be kept.`,
+      confirmLabel: locale === "zh" ? "删除监控项" : "Delete check",
+      cancelLabel: locale === "zh" ? "取消" : "Cancel",
+      tone: "danger"
+    });
     if (!confirmed) {
       return;
     }
@@ -1165,11 +1206,15 @@ export function App(): JSX.Element {
     if (checks.length === 0) {
       return;
     }
-    const confirmed = window.confirm(
-      locale === "zh"
-        ? `删除全部 ${checks.length} 个监控项？执行结果会一并清理，已产生的告警会保留。`
-        : `Delete all ${checks.length} checks? Results will be removed and existing alerts will be kept.`
-    );
+    const confirmed = await requestConfirm({
+      title: locale === "zh" ? "删除全部监控项" : "Delete all checks",
+      message: locale === "zh"
+        ? `确定删除全部 ${checks.length} 个监控项？执行结果会一并清理，已产生的告警会保留。`
+        : `Delete all ${checks.length} checks? Results will be removed and existing alerts will be kept.`,
+      confirmLabel: locale === "zh" ? "删除全部" : "Delete all",
+      cancelLabel: locale === "zh" ? "取消" : "Cancel",
+      tone: "danger"
+    });
     if (!confirmed) {
       return;
     }
@@ -2472,6 +2517,14 @@ export function App(): JSX.Element {
           </section>
         )}
 
+        {confirmDialog && (
+          <ConfirmDialog
+            {...confirmDialog}
+            onCancel={() => resolveConfirm(false)}
+            onConfirm={() => resolveConfirm(true)}
+          />
+        )}
+
         {accountModalOpen && (
           <Modal title={t.panels.addAccount} closeLabel={locale === "zh" ? "关闭添加账号弹窗" : "Close add account dialog"} onClose={() => setAccountModalOpen(false)}>
             <form className="modal-form" onSubmit={(event) => void handleCreateAccount(event)} autoComplete="off">
@@ -3264,6 +3317,59 @@ function Modal({
           </button>
         </div>
         <div className="modal-body">{children}</div>
+      </section>
+    </div>
+  );
+}
+
+function ConfirmDialog({
+  title,
+  message,
+  confirmLabel,
+  cancelLabel,
+  tone = "default",
+  onConfirm,
+  onCancel
+}: ConfirmDialogOptions & {
+  onConfirm: () => void;
+  onCancel: () => void;
+}): JSX.Element {
+  useEffect(() => {
+    function handleKeyDown(event: KeyboardEvent): void {
+      if (event.key === "Escape") {
+        onCancel();
+      }
+    }
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [onCancel]);
+
+  return (
+    <div
+      className="modal-backdrop"
+      role="presentation"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) {
+          onCancel();
+        }
+      }}
+    >
+      <section className={`modal-panel confirm-dialog is-${tone}`} role="alertdialog" aria-modal="true" aria-labelledby="confirm-dialog-title" aria-describedby="confirm-dialog-message">
+        <div className="confirm-dialog-icon" aria-hidden="true">
+          <AlertTriangle />
+        </div>
+        <div className="confirm-dialog-content">
+          <h2 id="confirm-dialog-title">{title}</h2>
+          <p id="confirm-dialog-message">{message}</p>
+        </div>
+        <div className="confirm-dialog-actions">
+          <button type="button" className="secondary-button" onClick={onCancel}>
+            {cancelLabel}
+          </button>
+          <button type="button" className={tone === "danger" ? "secondary-button danger-button" : "primary-button"} onClick={onConfirm}>
+            {confirmLabel}
+          </button>
+        </div>
       </section>
     </div>
   );

@@ -1774,6 +1774,72 @@ tbody tr:hover {
   padding: var(--space-4);
 }
 
+.confirm-dialog {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: var(--space-3);
+  inline-size: min(460px, calc(100vw - 32px));
+  padding: var(--space-4);
+}
+
+.confirm-dialog-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  inline-size: 36px;
+  block-size: 36px;
+  border-radius: var(--radius-sm);
+  background: var(--color-amber-soft);
+  color: var(--color-amber);
+}
+
+.confirm-dialog.is-danger .confirm-dialog-icon {
+  background: var(--color-red-soft);
+  color: var(--color-red);
+}
+
+.confirm-dialog-icon svg {
+  inline-size: 20px;
+  block-size: 20px;
+}
+
+.confirm-dialog-content {
+  min-inline-size: 0;
+}
+
+.confirm-dialog-content h2 {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-lg);
+  letter-spacing: 0;
+}
+
+.confirm-dialog-content p {
+  margin: 0;
+  color: var(--color-ink-muted);
+  font-size: var(--text-sm);
+  line-height: 1.65;
+}
+
+.confirm-dialog-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--space-2);
+  padding-block-start: var(--space-2);
+}
+
+.danger-button {
+  border-color: var(--color-red);
+  background: var(--color-red);
+  color: var(--color-surface-raised);
+}
+
+.danger-button:hover {
+  border-color: var(--color-red);
+  background: var(--color-red);
+  filter: brightness(0.96);
+}
+
 .modal-form {
   display: grid;
   gap: var(--space-3);
