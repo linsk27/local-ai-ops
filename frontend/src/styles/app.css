@@ -1583,7 +1583,7 @@ tbody tr:hover {
   margin-block-end: 0;
 }
 
-.compact-list div {
+.compact-list > div {
   grid-template-columns: minmax(120px, 0.28fr) 1fr;
   padding-block-end: var(--space-2);
 }
@@ -1826,7 +1826,7 @@ tbody tr:hover {
   margin: 0 0 var(--space-4);
 }
 
-.settings-list div {
+.settings-list > div {
   display: grid;
   grid-template-columns: minmax(112px, 0.32fr) 1fr;
   gap: var(--space-3);
