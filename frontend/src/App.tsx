@@ -3730,6 +3730,7 @@ const chartTooltipStyle = {
   backgroundColor: "rgba(248, 251, 251, 0.96)",
   borderColor: "#a8c3ca",
   borderWidth: 1,
+  borderRadius: 8,
   padding: [10, 12],
   textStyle: { color: chartInk, fontSize: 12 },
   extraCssText: "box-shadow: 0 12px 32px rgba(7, 28, 38, 0.12); border-radius: 6px;"
@@ -3828,7 +3829,7 @@ function buildRegionDistributionOption(rows: ChartDatum[], locale: Locale): ECha
     tooltip: {
       ...chartTooltipStyle,
       trigger: "axis",
-      axisPointer: { type: "shadow", shadowStyle: { color: "rgba(0, 111, 95, 0.08)" } },
+      axisPointer: { type: "line", lineStyle: { color: "rgba(0, 111, 95, 0.32)", width: 1, type: "dashed" } },
       formatter: (params: unknown) => {
         const item = Array.isArray(params) ? params[0] as { name: string; value: number } : null;
         return item ? `${item.name}<br/><strong>${item.value}</strong> ${locale === "zh" ? "个资源" : "assets"}` : "";
@@ -3950,7 +3951,7 @@ function buildExpiryOption(rows: ExpiryDatum[], locale: Locale): EChartsOption {
     tooltip: {
       ...chartTooltipStyle,
       trigger: "axis",
-      axisPointer: { type: "shadow", shadowStyle: { color: "rgba(0, 111, 95, 0.08)" } },
+      axisPointer: { type: "line", lineStyle: { color: "rgba(0, 111, 95, 0.32)", width: 1, type: "dashed" } },
       formatter: (params: unknown) => {
         const item = Array.isArray(params) ? params[0] as { name: string; data: ExpiryDatum & { value: number } } : null;
         if (!item) {
