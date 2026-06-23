@@ -1004,7 +1004,7 @@ table {
 
 .monitoring-page {
   display: grid;
-  grid-template-rows: auto minmax(340px, 1fr) minmax(132px, 220px);
+  grid-template-rows: auto minmax(420px, 1fr) minmax(120px, 160px);
   gap: var(--space-4);
   block-size: 100%;
   min-block-size: 0;
@@ -1017,9 +1017,10 @@ table {
 }
 
 .checks-panel {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr) auto;
   min-block-size: 0;
-  overflow-x: hidden;
-  overflow-y: auto;
+  overflow: hidden;
 }
 
 .monitoring-header-actions {
@@ -1042,6 +1043,18 @@ table {
 .monitoring-table {
   inline-size: 100%;
   min-inline-size: 0;
+}
+
+.monitoring-table-shell {
+  min-block-size: 0;
+  overflow: auto;
+  border-block: var(--rule-thin) solid var(--color-rule);
+}
+
+.monitoring-table-shell thead th {
+  position: sticky;
+  inset-block-start: 0;
+  z-index: 2;
 }
 
 .monitoring-table th:nth-child(1) {

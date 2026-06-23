@@ -2184,6 +2184,7 @@ export function App(): JSX.Element {
                   </div>
                 }
               />
+              <div className="monitoring-table-shell">
               <table className="checks-table monitoring-table">
                 <thead>
                   <tr>
@@ -2258,6 +2259,7 @@ export function App(): JSX.Element {
                   ))}
                 </tbody>
               </table>
+              </div>
               <div className="pagination-bar">
                 <span>{locale === "zh" ? `第 ${currentCheckPage} / ${checkPageTotal} 页，共 ${filteredChecks.length} 项` : `Page ${currentCheckPage} of ${checkPageTotal}, ${filteredChecks.length} checks`}</span>
                 <div className="pagination-buttons">
