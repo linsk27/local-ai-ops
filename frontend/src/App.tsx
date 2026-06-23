@@ -2156,6 +2156,7 @@ export function App(): JSX.Element {
               <Metric label={locale === "zh" ? "未执行" : "Never Run"} value={checkSummary.never} icon={Gauge} tone={checkSummary.never > 0 ? "warn" : "neutral"} />
             </section>
 
+            <section className="monitoring-workspace">
             <section className="panel table-panel checks-panel">
               <PanelHeader
                 title={locale === "zh" ? "监控中心" : "Monitoring Center"}
@@ -2287,6 +2288,7 @@ export function App(): JSX.Element {
                 ))}
                 {results.length === 0 && <EmptyState text={locale === "zh" ? "暂无执行结果" : "No check results"} />}
               </div>
+            </section>
             </section>
           </section>
         )}
