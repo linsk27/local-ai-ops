@@ -666,6 +666,18 @@ export function App(): JSX.Element {
     void initializeSession();
   }, []);
 
+  useEffect(() => {
+    if (!authMe) {
+      return;
+    }
+    const interval = window.setInterval(() => {
+      if (document.visibilityState === "visible" && !busyAction) {
+        void refreshAll({ quiet: true });
+      }
+    }, 60_000);
+    return () => window.clearInterval(interval);
+  }, [authMe, busyAction]);
+
   async function initializeSession(): Promise<void> {
     if (!getAuthToken()) {
       setNotice("");
@@ -1436,7 +1448,7 @@ export function App(): JSX.Element {
     );
     const candidates = results
       .filter((result) => result.asset_id === asset.id && (accessCheckIds.has(result.check_id) || isAccessValidationMessage(result.message)))
-      .sort((left, right) => new Date(right.checked_at).getTime() - new Date(left.checked_at).getTime());
+      .sort((left, right) => parseApiDateTime(right.checked_at).getTime() - parseApiDateTime(left.checked_at).getTime());
     const latest = candidates[0];
     if (!latest) {
       return {
@@ -1458,7 +1470,7 @@ export function App(): JSX.Element {
       <span className="access-validation">
         <StatusPill status={validation.status} locale={locale} />
         <span>{validation.message}</span>
-        {validation.checkedAt && <time>{new Date(validation.checkedAt).toLocaleString()}</time>}
+        {validation.checkedAt && <time>{formatApiDateTime(validation.checkedAt, locale)}</time>}
       </span>
     );
   }
@@ -2278,7 +2290,7 @@ export function App(): JSX.Element {
                         <div className="latest-result-cell">
                           <strong>{checkLatestValue(check, locale)}</strong>
                           <span>{check.last_message ? localizeGeneratedText(check.last_message, locale) : "-"}</span>
-                          {check.last_checked_at && <time>{new Date(check.last_checked_at).toLocaleString()}</time>}
+                          {check.last_checked_at && <time>{formatApiDateTime(check.last_checked_at, locale)}</time>}
                         </div>
                       </td>
                       <td className="row-actions">
@@ -2328,7 +2340,7 @@ export function App(): JSX.Element {
                   <div className="result-line" key={result.id}>
                     <StatusIcon status={result.status} />
                     <span>{localizeGeneratedText(result.message, locale)}</span>
-                    <time>{new Date(result.checked_at).toLocaleString()}</time>
+                    <time>{formatApiDateTime(result.checked_at, locale)}</time>
                   </div>
                 ))}
                 {results.length === 0 && <EmptyState text={locale === "zh" ? "暂无执行结果" : "No check results"} />}
@@ -2442,7 +2454,7 @@ export function App(): JSX.Element {
                     </span>
                     <span className="source-meta">
                       <StatusPill status={alert.severity} locale={locale} />
-                      <time>{new Date(alert.updated_at).toLocaleString()}</time>
+                      <time>{formatApiDateTime(alert.updated_at, locale)}</time>
                     </span>
                   </button>
                 ))}
@@ -2456,7 +2468,7 @@ export function App(): JSX.Element {
                   activeDiagnosis ? (
                     <div className="diagnosis-meta">
                       <span>{activeDiagnosis.model}</span>
-                      <time>{new Date(activeDiagnosis.created_at).toLocaleString()}</time>
+                      <time>{formatApiDateTime(activeDiagnosis.created_at, locale)}</time>
                     </div>
                   ) : null
                 }
@@ -3693,7 +3705,7 @@ function runtimeMetricTitle(asset: Asset, key: string, locale: Locale): string {
   if (typeof checkedAt !== "string" || !checkedAt) {
     return locale === "zh" ? "来自资产同步或尚无采集时间" : "From asset sync or no collection time";
   }
-  return `${locale === "zh" ? "最近采集" : "Last collected"}: ${new Date(checkedAt).toLocaleString()}`;
+  return `${locale === "zh" ? "最近采集" : "Last collected"}: ${formatApiDateTime(checkedAt, locale)}`;
 }
 
 function usageEmptyTitle(asset: Asset, locale: Locale): string {
@@ -4046,6 +4058,29 @@ function assetExpiryDate(asset: Asset): string {
     return "";
   }
   return date.includes("T") ? date.slice(0, 10) : date.slice(0, 10);
+}
+
+function parseApiDateTime(value: string): Date {
+  const trimmed = value.trim();
+  const hasExplicitTimezone = /(?:z|[+-]\d{2}:?\d{2})$/i.test(trimmed);
+  const normalized = trimmed.includes("T") && !hasExplicitTimezone ? `${trimmed}Z` : trimmed;
+  return new Date(normalized);
+}
+
+function formatApiDateTime(value: string, locale: Locale): string {
+  const date = parseApiDateTime(value);
+  if (Number.isNaN(date.getTime())) {
+    return value;
+  }
+  return date.toLocaleString(locale === "zh" ? "zh-CN" : "en-US", {
+    hour12: false,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit"
+  });
 }
 
 function daysUntil(date: string): number {
