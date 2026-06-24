@@ -26,7 +26,7 @@ class Settings(BaseSettings):
 
     auth_enabled: bool = True
     admin_username: str = "admin"
-    admin_password: str = "change-me-now"
+    admin_password: str = "admin"
     auth_token_ttl_minutes: int = 720
 
     aliyun_mode: str = Field(default="real", pattern="^real$")

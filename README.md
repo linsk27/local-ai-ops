@@ -66,11 +66,11 @@ ALIYUN_MODE=real
 ALIYUN_DEFAULT_REGION=cn-hangzhou
 AUTH_ENABLED=true
 ADMIN_USERNAME=admin
-ADMIN_PASSWORD=change-me-now
+ADMIN_PASSWORD=admin
 AUTO_SYNC_ENABLED=false
 ```
 
-首次启动后用 `ADMIN_USERNAME` / `ADMIN_PASSWORD` 登录。请把默认密码 `change-me-now` 改成自己的强密码；页面会在默认密码未修改时显示安全提示。
+首次启动默认登录为 `admin / admin`。请把 `ADMIN_PASSWORD` 改成自己的强密码；页面会在默认密码未修改时显示安全提示。
 
 ### 3. Run
 

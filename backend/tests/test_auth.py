@@ -18,11 +18,11 @@ def test_auth_middleware_and_login_flow() -> None:
     try:
         settings.auth_enabled = True
         settings.admin_username = "admin"
-        settings.admin_password = "change-me-now"
+        settings.admin_password = "admin"
         settings.auth_token_ttl_minutes = 720
         config.auth_enabled = True
         config.admin_username = "admin"
-        config.admin_password = "change-me-now"
+        config.admin_password = "admin"
         config.auth_token_ttl_minutes = 720
 
         with TestClient(app) as client:
@@ -32,7 +32,7 @@ def test_auth_middleware_and_login_flow() -> None:
             bad_login = client.post("/api/auth/login", json={"username": "admin", "password": "wrong"})
             assert bad_login.status_code == 401
 
-            login = client.post("/api/auth/login", json={"username": "admin", "password": "change-me-now"})
+            login = client.post("/api/auth/login", json={"username": "admin", "password": "admin"})
             assert login.status_code == 200
             payload = login.json()
             assert payload["token_type"] == "bearer"

@@ -42,7 +42,7 @@ def verify_admin_password(password: str) -> bool:
 
 def is_default_admin_password() -> bool:
     settings = get_settings()
-    return settings.auth_enabled and settings.admin_password == "change-me-now"
+    return settings.auth_enabled and settings.admin_password in {"admin", "change-me-now"}
 
 
 def user_from_request(request: Request) -> str:
