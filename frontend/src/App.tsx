@@ -2238,7 +2238,7 @@ export function App(): JSX.Element {
                     <th>{t.table.type}</th>
                     <th>{t.table.asset}</th>
                     <th>{t.table.target}</th>
-                    <th>{locale === "zh" ? "频率/告警" : "Frequency / Alert"}</th>
+                    <th>{locale === "zh" ? "计划" : "Schedule"}</th>
                     <th>{t.table.status}</th>
                     <th>{locale === "zh" ? "最近结果" : "Latest Result"}</th>
                     <th>{t.table.action}</th>
@@ -2272,9 +2272,7 @@ export function App(): JSX.Element {
                         </div>
                       </td>
                       <td className="mono target-cell">{check.target}</td>
-                      <td>
-                        <CheckScheduleCell check={check} locale={locale} />
-                      </td>
+                      <td>{checkScheduleLabel(check, locale)}</td>
                       <td><StatusPill status={checkStatusForDisplay(check)} locale={locale} /></td>
                       <td>
                         <div className="latest-result-cell">
@@ -3475,21 +3473,15 @@ function checkPurposeLabel(check: Check, locale: Locale): string {
   return check.name;
 }
 
-function CheckScheduleCell({ check, locale }: { check: Check; locale: Locale }): JSX.Element {
+function checkScheduleLabel(check: Check, locale: Locale): string {
   const seconds = check.interval_seconds;
   const interval = seconds >= 3600
-    ? locale === "zh" ? `每 ${Math.round(seconds / 3600)} 小时` : `Every ${Math.round(seconds / 3600)}h`
+    ? `${Math.round(seconds / 3600)}h`
     : seconds >= 60
-      ? locale === "zh" ? `每 ${Math.round(seconds / 60)} 分钟` : `Every ${Math.round(seconds / 60)}m`
-      : locale === "zh" ? `每 ${seconds} 秒` : `Every ${seconds}s`;
-  const failure = locale === "zh" ? `失败 ${check.failure_threshold} 次告警` : `${check.failure_threshold} failures to alert`;
-
-  return (
-    <div className="check-schedule-cell" title={locale === "zh" ? `${interval}执行；${failure}` : `${interval}; ${failure}`}>
-      <span>{check.enabled ? interval : (locale === "zh" ? "已停用" : "Disabled")}</span>
-      <span>{failure}</span>
-    </div>
-  );
+      ? `${Math.round(seconds / 60)}m`
+      : `${seconds}s`;
+  const failure = locale === "zh" ? `${check.failure_threshold} 次失败告警` : `${check.failure_threshold} failures`;
+  return `${check.enabled ? interval : (locale === "zh" ? "停用" : "Disabled")} / ${failure}`;
 }
 
 function checkLatestValue(check: Check, locale: Locale): string {
