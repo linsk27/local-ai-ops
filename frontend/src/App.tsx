@@ -1176,6 +1176,21 @@ export function App(): JSX.Element {
   async function handleRunCheck(check: Check): Promise<void> {
     await withBusy(`run-${check.id}`, async () => {
       const result = await apiPost<CheckResult>(`/checks/${check.id}/run`);
+      setResults((current) => [result, ...current.filter((item) => item.id !== result.id)].slice(0, 50));
+      setChecks((current) => current.map((item) => {
+        if (item.id !== check.id) {
+          return item;
+        }
+        return {
+          ...item,
+          last_status: result.status,
+          last_message: result.message,
+          last_value: result.value,
+          last_latency_ms: result.latency_ms,
+          last_checked_at: result.checked_at,
+          result_count: item.result_count + 1
+        };
+      }));
       setNotice(`检查完成：${result.status} / ${result.message}`);
       return result;
     });
