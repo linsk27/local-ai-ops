@@ -609,6 +609,9 @@ export function App(): JSX.Element {
     clearAuthToken();
     setAuthMe(null);
     setAuthChecked(true);
+    setBusyAction("");
+    setCheckModalOpen(false);
+    setConfirmDialog(null);
     if (error instanceof ApiAuthError) {
       setNotice(locale === "zh" ? "登录已过期，请重新登录。" : "Session expired. Please sign in again.");
     }
@@ -739,6 +742,8 @@ export function App(): JSX.Element {
     } catch (error) {
       if (error instanceof ApiAuthError) {
         clearAuthToken();
+        setAuthMe(null);
+        setAuthChecked(true);
       }
       setNotice(presentNotice(error instanceof Error ? error.message : "Login failed", locale));
     } finally {
