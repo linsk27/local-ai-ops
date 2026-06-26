@@ -2161,42 +2161,45 @@ export function App(): JSX.Element {
               <label className="asset-search-control">
                 <Search aria-hidden="true" />
                 <input
+                  type="search"
                   value={assetSearch}
                   onChange={(event) => setAssetSearch(event.target.value)}
-                  placeholder={locale === "zh" ? "搜索名称、IP、地域、规格、域名、Bucket" : "Search name, IP, region, spec, domain, bucket"}
+                  placeholder={locale === "zh" ? "搜索资产、IP、域名、Bucket" : "Search assets, IP, domain, bucket"}
                 />
               </label>
-              <label className="asset-filter-control">
-                <span>{locale === "zh" ? "地域" : "Region"}</span>
-                <select value={selectedAssetRegion} onChange={(event) => setSelectedAssetRegion(event.target.value)}>
-                  <option value="all">{locale === "zh" ? "全部地域" : "All regions"}</option>
-                  {assetRegionOptions.map((region) => (
-                    <option value={region} key={region}>{region}</option>
-                  ))}
-                </select>
-              </label>
-              <label className="asset-filter-control">
-                <span>{locale === "zh" ? "状态" : "Status"}</span>
-                <select value={selectedAssetStatus} onChange={(event) => setSelectedAssetStatus(event.target.value)}>
-                  <option value="all">{locale === "zh" ? "全部状态" : "All statuses"}</option>
-                  {assetStatusOptions.map((status) => (
-                    <option value={status} key={status}>{statusLabel(status, locale)}</option>
-                  ))}
-                </select>
-              </label>
-              <button
-                type="button"
-                className="secondary-button compact-button"
-                disabled={!hasActiveAssetFilters}
-                onClick={() => {
-                  setAssetSearch("");
-                  setSelectedAssetType("all");
-                  setSelectedAssetRegion("all");
-                  setSelectedAssetStatus("all");
-                }}
-              >
-                {locale === "zh" ? "清空筛选" : "Clear filters"}
-              </button>
+              <div className="asset-filter-controls">
+                <label className="asset-filter-control">
+                  <span>{locale === "zh" ? "地域" : "Region"}</span>
+                  <select value={selectedAssetRegion} onChange={(event) => setSelectedAssetRegion(event.target.value)}>
+                    <option value="all">{locale === "zh" ? "全部地域" : "All regions"}</option>
+                    {assetRegionOptions.map((region) => (
+                      <option value={region} key={region}>{region}</option>
+                    ))}
+                  </select>
+                </label>
+                <label className="asset-filter-control">
+                  <span>{locale === "zh" ? "状态" : "Status"}</span>
+                  <select value={selectedAssetStatus} onChange={(event) => setSelectedAssetStatus(event.target.value)}>
+                    <option value="all">{locale === "zh" ? "全部状态" : "All statuses"}</option>
+                    {assetStatusOptions.map((status) => (
+                      <option value={status} key={status}>{statusLabel(status, locale)}</option>
+                    ))}
+                  </select>
+                </label>
+                <button
+                  type="button"
+                  className="asset-filter-reset"
+                  disabled={!hasActiveAssetFilters}
+                  onClick={() => {
+                    setAssetSearch("");
+                    setSelectedAssetType("all");
+                    setSelectedAssetRegion("all");
+                    setSelectedAssetStatus("all");
+                  }}
+                >
+                  {locale === "zh" ? "重置" : "Reset"}
+                </button>
+              </div>
             </div>
             <div className="table-meta-row">
               <span>
