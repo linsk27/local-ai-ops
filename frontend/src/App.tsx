@@ -19,6 +19,7 @@ import {
   Play,
   RefreshCcw,
   Save,
+  Search,
   Server,
   Settings,
   ShieldCheck,
@@ -447,6 +448,9 @@ export function App(): JSX.Element {
   const [aiConfig, setAiConfig] = useState<AiConfig>(initialAiConfig);
   const [aiTestResult, setAiTestResult] = useState<AiConfigTestResult | null>(null);
   const [selectedAssetType, setSelectedAssetType] = useState<AssetFilter>("all");
+  const [assetSearch, setAssetSearch] = useState("");
+  const [selectedAssetRegion, setSelectedAssetRegion] = useState("all");
+  const [selectedAssetStatus, setSelectedAssetStatus] = useState("all");
   const [assetPage, setAssetPage] = useState(1);
   const [assetPageSize, setAssetPageSize] = useState(10);
   const [selectedCheckFilter, setSelectedCheckFilter] = useState<CheckFilter>("all");
@@ -516,14 +520,23 @@ export function App(): JSX.Element {
   });
 
   const filteredAssets = useMemo(() => {
-    if (selectedAssetType === "all") {
-      return assets;
-    }
-    if (selectedAssetType === "server") {
-      return assets.filter((asset) => ["ecs", "swas"].includes(asset.type));
-    }
-    return assets.filter((asset) => asset.type === selectedAssetType);
-  }, [assets, selectedAssetType]);
+    const query = assetSearch.trim().toLowerCase();
+    return assets.filter((asset) => {
+      if (!assetMatchesType(asset, selectedAssetType)) {
+        return false;
+      }
+      if (selectedAssetRegion !== "all" && asset.region !== selectedAssetRegion) {
+        return false;
+      }
+      if (selectedAssetStatus !== "all" && asset.status !== selectedAssetStatus) {
+        return false;
+      }
+      if (!query) {
+        return true;
+      }
+      return assetSearchText(asset, locale).includes(query);
+    });
+  }, [assetSearch, assets, locale, selectedAssetRegion, selectedAssetStatus, selectedAssetType]);
   const assetFilterCounts = useMemo(() => {
     return assetFilters.reduce<Record<AssetFilter, number>>((counts, type) => {
       counts[type] = type === "all"
@@ -534,6 +547,20 @@ export function App(): JSX.Element {
       return counts;
     }, { all: 0, server: 0, oss: 0, domain: 0, dns: 0 });
   }, [assets]);
+  const assetRegionOptions = useMemo(
+    () => Array.from(new Set(assets.map((asset) => asset.region).filter(Boolean))).sort((left, right) => left.localeCompare(right)),
+    [assets]
+  );
+  const assetStatusOptions = useMemo(
+    () => Array.from(new Set(assets.map((asset) => asset.status).filter(Boolean))).sort((left, right) => left.localeCompare(right)),
+    [assets]
+  );
+  const hasActiveAssetFilters = Boolean(
+    assetSearch.trim() ||
+    selectedAssetType !== "all" ||
+    selectedAssetRegion !== "all" ||
+    selectedAssetStatus !== "all"
+  );
   const assetPageTotal = Math.max(1, Math.ceil(filteredAssets.length / assetPageSize));
   const currentAssetPage = Math.min(assetPage, assetPageTotal);
   const paginatedAssets = useMemo(
@@ -579,7 +606,7 @@ export function App(): JSX.Element {
 
   useEffect(() => {
     setAssetPage(1);
-  }, [selectedAssetType, assetPageSize]);
+  }, [assetPageSize, assetSearch, selectedAssetRegion, selectedAssetStatus, selectedAssetType]);
 
   useEffect(() => {
     setCheckPage(1);
@@ -2130,11 +2157,52 @@ export function App(): JSX.Element {
                 </div>
               }
             />
+            <div className="asset-filter-bar" role="search" aria-label={locale === "zh" ? "资产筛选" : "Asset filters"}>
+              <label className="asset-search-control">
+                <Search aria-hidden="true" />
+                <input
+                  value={assetSearch}
+                  onChange={(event) => setAssetSearch(event.target.value)}
+                  placeholder={locale === "zh" ? "搜索名称、IP、地域、规格、域名、Bucket" : "Search name, IP, region, spec, domain, bucket"}
+                />
+              </label>
+              <label className="asset-filter-control">
+                <span>{locale === "zh" ? "地域" : "Region"}</span>
+                <select value={selectedAssetRegion} onChange={(event) => setSelectedAssetRegion(event.target.value)}>
+                  <option value="all">{locale === "zh" ? "全部地域" : "All regions"}</option>
+                  {assetRegionOptions.map((region) => (
+                    <option value={region} key={region}>{region}</option>
+                  ))}
+                </select>
+              </label>
+              <label className="asset-filter-control">
+                <span>{locale === "zh" ? "状态" : "Status"}</span>
+                <select value={selectedAssetStatus} onChange={(event) => setSelectedAssetStatus(event.target.value)}>
+                  <option value="all">{locale === "zh" ? "全部状态" : "All statuses"}</option>
+                  {assetStatusOptions.map((status) => (
+                    <option value={status} key={status}>{statusLabel(status, locale)}</option>
+                  ))}
+                </select>
+              </label>
+              <button
+                type="button"
+                className="secondary-button compact-button"
+                disabled={!hasActiveAssetFilters}
+                onClick={() => {
+                  setAssetSearch("");
+                  setSelectedAssetType("all");
+                  setSelectedAssetRegion("all");
+                  setSelectedAssetStatus("all");
+                }}
+              >
+                {locale === "zh" ? "清空筛选" : "Clear filters"}
+              </button>
+            </div>
             <div className="table-meta-row">
               <span>
                 {locale === "zh"
-                  ? `当前 ${filteredAssets.length} 个，显示 ${assetRangeStart}-${assetRangeEnd}，总计 ${assets.length} 个`
-                  : `${filteredAssets.length} current, showing ${assetRangeStart}-${assetRangeEnd}, ${assets.length} total`}
+                  ? `匹配 ${filteredAssets.length} 个，显示 ${assetRangeStart}-${assetRangeEnd}，总计 ${assets.length} 个`
+                  : `${filteredAssets.length} matched, showing ${assetRangeStart}-${assetRangeEnd}, ${assets.length} total`}
               </span>
               <label className="page-size-control">
                 <span>{locale === "zh" ? "每页" : "Rows"}</span>
@@ -4133,6 +4201,49 @@ function assetTypeLabel(type: string, locale: Locale): string {
     integration: "Integration"
   };
   return (locale === "zh" ? zh : en)[type] ?? type;
+}
+
+function assetMatchesType(asset: Asset, filter: AssetFilter): boolean {
+  if (filter === "all") {
+    return true;
+  }
+  if (filter === "server") {
+    return ["ecs", "swas"].includes(asset.type);
+  }
+  return asset.type === filter;
+}
+
+function assetSearchText(asset: Asset, locale: Locale): string {
+  return [
+    asset.name,
+    asset.external_id,
+    asset.region,
+    asset.status,
+    statusLabel(asset.status, locale),
+    asset.type,
+    assetTypeLabel(asset.type, locale),
+    assetPublicIp(asset),
+    assetPrivateIp(asset),
+    assetSpec(asset, locale),
+    assetExpiry(asset, locale),
+    ...flattenSearchValues(asset.metadata_json)
+  ].filter(Boolean).join(" ").toLowerCase();
+}
+
+function flattenSearchValues(value: unknown): string[] {
+  if (value === null || value === undefined) {
+    return [];
+  }
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    return [String(value)];
+  }
+  if (Array.isArray(value)) {
+    return value.flatMap((item) => flattenSearchValues(item));
+  }
+  if (typeof value === "object") {
+    return Object.entries(value as Record<string, unknown>).flatMap(([key, item]) => [key, ...flattenSearchValues(item)]);
+  }
+  return [];
 }
 
 function assetPublicIp(asset: Asset): string {

@@ -905,7 +905,7 @@ textarea:hover {
 
 .asset-list-panel {
   display: grid;
-  grid-template-rows: auto auto minmax(0, 1fr) auto;
+  grid-template-rows: auto auto auto minmax(0, 1fr) auto;
   overflow: hidden;
 }
 
@@ -919,6 +919,64 @@ textarea:hover {
   position: sticky;
   inset-block-start: 0;
   z-index: 1;
+}
+
+.asset-filter-bar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-block-start: var(--space-3);
+  min-inline-size: 0;
+}
+
+.asset-search-control {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: 1 1 360px;
+  min-inline-size: 260px;
+  max-inline-size: 560px;
+  min-block-size: 40px;
+  padding-inline: var(--space-3);
+  border: var(--rule-thin) solid var(--color-rule);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-raised);
+}
+
+.asset-search-control svg {
+  flex: 0 0 auto;
+  inline-size: 16px;
+  block-size: 16px;
+  color: var(--color-ink-muted);
+}
+
+.asset-search-control input {
+  min-block-size: 0;
+  padding: 0;
+  border: 0;
+  background: transparent;
+}
+
+.asset-search-control input:focus {
+  outline: none;
+  box-shadow: none;
+}
+
+.asset-filter-control {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex: 0 1 auto;
+  min-block-size: 40px;
+  color: var(--color-ink-muted);
+  font-size: var(--text-sm);
+}
+
+.asset-filter-control select {
+  min-inline-size: 128px;
+  min-block-size: 40px;
+  padding-block: 0;
 }
 
 .alert-list-panel {
