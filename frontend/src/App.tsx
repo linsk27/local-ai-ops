@@ -41,6 +41,7 @@ type CheckFilter = "all" | "failing" | "ok" | "never" | "disabled";
 type ChartDatum = { name: string; value: number };
 type ExpiryDatum = { name: string; days: number; date: string; region: string };
 type RuntimeCollection = { asset: Asset; results: CheckResult[] };
+type DetailRow = { label: string; value: React.ReactNode; mono?: boolean; source?: string };
 type AssetFilter = "all" | "server" | "oss" | "domain" | "dns";
 type ConfirmDialogOptions = {
   title: string;
@@ -1406,12 +1407,15 @@ export function App(): JSX.Element {
     }
   }
 
-  function renderDetailRows(rows: Array<{ label: string; value: React.ReactNode; mono?: boolean }>, compact = false): JSX.Element {
+  function renderDetailRows(rows: DetailRow[], compact = false): JSX.Element {
     return (
       <dl className={compact ? "settings-list compact-list" : "settings-list detail-list"}>
         {rows.map((row) => (
           <div key={row.label}>
-            <dt>{row.label}</dt>
+            <dt>
+              <span>{row.label}</span>
+              {row.source && <SourceTag source={row.source} locale={locale} />}
+            </dt>
             <dd className={row.mono ? "mono" : undefined}>{row.value || "-"}</dd>
           </div>
         ))}
@@ -1431,7 +1435,8 @@ export function App(): JSX.Element {
     );
   }
 
-  function renderAssetProfilePanel(asset: Asset, rows: Array<{ label: string; value: React.ReactNode; mono?: boolean }>): JSX.Element {
+  function renderAssetProfilePanel(asset: Asset, rows: DetailRow[]): JSX.Element {
+    const quality = assetQuality(asset);
     return (
       <section className="panel">
         <PanelHeader
@@ -1451,9 +1456,9 @@ export function App(): JSX.Element {
           </div>
         </div>
         {renderDetailRows([
-          { label: t.table.type, value: assetTypeLabel(asset.type, locale) },
-          { label: t.table.region, value: asset.region || "-" },
-          { label: t.table.status, value: <StatusPill status={asset.status} locale={locale} /> },
+          { label: t.table.type, value: assetTypeLabel(asset.type, locale), source: fieldSource(quality, "identity") },
+          { label: t.table.region, value: asset.region || "-", source: fieldSource(quality, "identity") },
+          { label: t.table.status, value: <StatusPill status={asset.status} locale={locale} />, source: fieldSource(quality, "identity") },
           ...rows
         ])}
       </section>
@@ -1717,17 +1722,89 @@ export function App(): JSX.Element {
     );
   }
 
+  function renderDataQualityPanel(asset: Asset): JSX.Element {
+    const quality = assetQuality(asset);
+    const collection = quality.collection;
+    const sourceKeys = sourceKeysForAsset(asset);
+    const actions = quality.recommended_actions.filter((action, index, list) => list.indexOf(action) === index);
+
+    return (
+      <section className="panel data-quality-panel">
+        <PanelHeader title={locale === "zh" ? "数据状态" : "Data Status"} />
+        <div className="quality-summary">
+          <div>
+            <span>{locale === "zh" ? "最近采集" : "Last Collection"}</span>
+            <strong>{collectionStatusLabel(collection.status, locale)}</strong>
+            <small>{collectionSummary(collection, locale)}</small>
+          </div>
+          <StatusPill status={collection.status === "ok" ? "ok" : collection.status === "failed" ? "failed" : "pending"} locale={locale} />
+        </div>
+        <div className="data-source-grid" aria-label={locale === "zh" ? "字段来源" : "Field sources"}>
+          {sourceKeys.map((key) => (
+            <span className="data-source-item" key={key}>
+              <span>{sourceFieldLabel(key, locale)}</span>
+              <SourceTag source={fieldSource(quality, key)} locale={locale} />
+            </span>
+          ))}
+        </div>
+        <div className="quality-gaps">
+          <span>{locale === "zh" ? "缺口" : "Gaps"}</span>
+          <div>
+            {quality.gaps.length > 0 ? (
+              quality.gaps.map((gap) => <span className="quality-gap" key={gap}>{gapLabel(gap, locale)}</span>)
+            ) : (
+              <span className="quality-gap is-good">{locale === "zh" ? "暂无缺口" : "No gaps"}</span>
+            )}
+          </div>
+        </div>
+        {actions.length > 0 && (
+          <div className="quality-actions">
+            {actions.map((action) => {
+              if (action === "configure_ssh_access") {
+                return (
+                  <button type="button" className="secondary-button compact-button" key={action} onClick={() => setAccessModalOpen(true)}>
+                    <LockKeyhole aria-hidden="true" />
+                    {actionLabel(action, locale)}
+                  </button>
+                );
+              }
+              if (action === "collect_runtime") {
+                return (
+                  <button type="button" className="secondary-button compact-button" key={action} onClick={() => void handleCollectRuntime(asset)} disabled={busyAction === `collect-runtime-${asset.id}`}>
+                    <TerminalSquare aria-hidden="true" />
+                    {actionLabel(action, locale)}
+                  </button>
+                );
+              }
+              if (action === "create_default_checks") {
+                return (
+                  <button type="button" className="secondary-button compact-button" key={action} onClick={() => void handleCreateDefaultChecks(asset)} disabled={busyAction === `default-checks-${asset.id}`}>
+                    <Activity aria-hidden="true" />
+                    {actionLabel(action, locale)}
+                  </button>
+                );
+              }
+              return null;
+            })}
+          </div>
+        )}
+      </section>
+    );
+  }
+
   function renderServerDetail(asset: Asset): JSX.Element {
+    const quality = assetQuality(asset);
     return (
       <section className="asset-detail-layout">
         <section className="detail-stack">
           {renderAssetProfilePanel(asset, [
-            { label: locale === "zh" ? "公网 IP" : "Public IP", value: assetPublicIp(asset), mono: true },
-            { label: locale === "zh" ? "内网 IP" : "Private IP", value: assetPrivateIp(asset), mono: true },
-            { label: t.table.spec, value: assetSpec(asset, locale) },
-            { label: t.table.usage, value: <UsageMeters asset={asset} locale={locale} /> },
-            { label: locale === "zh" ? "系统/镜像" : "OS/Image", value: assetImage(asset) }
+            { label: locale === "zh" ? "公网 IP" : "Public IP", value: assetPublicIp(asset), mono: true, source: fieldSource(quality, "network") },
+            { label: locale === "zh" ? "内网 IP" : "Private IP", value: assetPrivateIp(asset), mono: true, source: fieldSource(quality, "network") },
+            { label: t.table.spec, value: assetSpec(asset, locale), source: fieldSource(quality, "spec") },
+            { label: t.table.usage, value: <UsageMeters asset={asset} locale={locale} />, source: fieldSource(quality, "usage") },
+            { label: locale === "zh" ? "系统/镜像" : "OS/Image", value: assetImage(asset), source: fieldSource(quality, "identity") }
           ])}
+          {renderDataQualityPanel(asset)}
           {renderActionPanel(t.panels.quickActions, (
             <>
               <button type="button" className="primary-button" onClick={() => void handleCreateDefaultChecks(asset)} disabled={busyAction === `default-checks-${asset.id}`}>
@@ -1765,17 +1842,19 @@ export function App(): JSX.Element {
   }
 
   function renderOssDetail(asset: Asset): JSX.Element {
+    const quality = assetQuality(asset);
     const endpoint = metadataText(asset.metadata_json, ["extranet_endpoint", "intranet_endpoint"]);
     return (
       <section className="asset-detail-layout">
         <section className="detail-stack">
           {renderAssetProfilePanel(asset, [
-            { label: locale === "zh" ? "Bucket" : "Bucket", value: asset.name, mono: true },
-            { label: locale === "zh" ? "存储类型" : "Storage Class", value: metadataText(asset.metadata_json, ["storage_class"]) || "-" },
-            { label: locale === "zh" ? "创建时间" : "Created", value: metadataText(asset.metadata_json, ["creation_date"]) || "-" },
-            { label: locale === "zh" ? "公网 Endpoint" : "Public Endpoint", value: metadataText(asset.metadata_json, ["extranet_endpoint"]) || "-", mono: true },
-            { label: locale === "zh" ? "内网 Endpoint" : "Internal Endpoint", value: metadataText(asset.metadata_json, ["intranet_endpoint"]) || "-", mono: true }
+            { label: locale === "zh" ? "Bucket" : "Bucket", value: asset.name, mono: true, source: fieldSource(quality, "identity") },
+            { label: locale === "zh" ? "存储类型" : "Storage Class", value: metadataText(asset.metadata_json, ["storage_class"]) || "-", source: fieldSource(quality, "spec") },
+            { label: locale === "zh" ? "创建时间" : "Created", value: metadataText(asset.metadata_json, ["creation_date"]) || "-", source: fieldSource(quality, "identity") },
+            { label: locale === "zh" ? "公网 Endpoint" : "Public Endpoint", value: metadataText(asset.metadata_json, ["extranet_endpoint"]) || "-", mono: true, source: fieldSource(quality, "network") },
+            { label: locale === "zh" ? "内网 Endpoint" : "Internal Endpoint", value: metadataText(asset.metadata_json, ["intranet_endpoint"]) || "-", mono: true, source: fieldSource(quality, "network") }
           ])}
+          {renderDataQualityPanel(asset)}
         </section>
         <section className="detail-stack">
           <section className="panel">
@@ -1807,14 +1886,16 @@ export function App(): JSX.Element {
   }
 
   function renderDomainDetail(asset: Asset): JSX.Element {
+    const quality = assetQuality(asset);
     return (
       <section className="asset-detail-layout">
         <section className="detail-stack">
           {renderAssetProfilePanel(asset, [
-            { label: locale === "zh" ? "域名" : "Domain", value: asset.name, mono: true },
-            { label: locale === "zh" ? "注册商" : "Registrar", value: metadataText(asset.metadata_json, ["registrar"]) || "-" },
-            { label: locale === "zh" ? "外部 ID" : "External ID", value: asset.external_id, mono: true }
+            { label: locale === "zh" ? "域名" : "Domain", value: asset.name, mono: true, source: fieldSource(quality, "identity") },
+            { label: locale === "zh" ? "注册商" : "Registrar", value: metadataText(asset.metadata_json, ["registrar"]) || "-", source: fieldSource(quality, "identity") },
+            { label: locale === "zh" ? "外部 ID" : "External ID", value: asset.external_id, mono: true, source: fieldSource(quality, "identity") }
           ])}
+          {renderDataQualityPanel(asset)}
           {renderActionPanel(locale === "zh" ? "域名操作" : "Domain Actions", (
             <>
               <button type="button" className="primary-button" onClick={() => void handleCreateDefaultChecks(asset)} disabled={busyAction === `default-checks-${asset.id}`}>
@@ -1836,18 +1917,20 @@ export function App(): JSX.Element {
   }
 
   function renderDnsDetail(asset: Asset): JSX.Element {
+    const quality = assetQuality(asset);
     const isRecord = Boolean(metadataText(asset.metadata_json, ["record_type"]));
     return (
       <section className="asset-detail-layout">
         <section className="detail-stack">
           {renderAssetProfilePanel(asset, [
-            { label: locale === "zh" ? "DNS 类型" : "DNS Kind", value: isRecord ? (locale === "zh" ? "解析记录" : "Record") : (locale === "zh" ? "解析域名" : "Zone") },
-            { label: locale === "zh" ? "记录类型" : "Record Type", value: metadataText(asset.metadata_json, ["record_type"]) || "-" },
-            { label: locale === "zh" ? "记录值" : "Record Value", value: metadataText(asset.metadata_json, ["value"]) || "-", mono: true },
-            { label: locale === "zh" ? "TTL" : "TTL", value: metadataText(asset.metadata_json, ["ttl"]) || "-" },
-            { label: locale === "zh" ? "记录数" : "Records", value: metadataText(asset.metadata_json, ["record_count"]) || "-" },
-            { label: locale === "zh" ? "版本" : "Version", value: metadataText(asset.metadata_json, ["version_name"]) || "-" }
+            { label: locale === "zh" ? "DNS 类型" : "DNS Kind", value: isRecord ? (locale === "zh" ? "解析记录" : "Record") : (locale === "zh" ? "解析域名" : "Zone"), source: fieldSource(quality, "identity") },
+            { label: locale === "zh" ? "记录类型" : "Record Type", value: metadataText(asset.metadata_json, ["record_type"]) || "-", source: fieldSource(quality, "identity") },
+            { label: locale === "zh" ? "记录值" : "Record Value", value: metadataText(asset.metadata_json, ["value"]) || "-", mono: true, source: fieldSource(quality, "identity") },
+            { label: locale === "zh" ? "TTL" : "TTL", value: metadataText(asset.metadata_json, ["ttl"]) || "-", source: fieldSource(quality, "identity") },
+            { label: locale === "zh" ? "记录数" : "Records", value: metadataText(asset.metadata_json, ["record_count"]) || "-", source: fieldSource(quality, "identity") },
+            { label: locale === "zh" ? "版本" : "Version", value: metadataText(asset.metadata_json, ["version_name"]) || "-", source: fieldSource(quality, "identity") }
           ])}
+          {renderDataQualityPanel(asset)}
         </section>
         <section className="detail-stack">
           <section className="panel">
@@ -1883,14 +1966,16 @@ export function App(): JSX.Element {
   }
 
   function renderGenericAssetDetail(asset: Asset): JSX.Element {
+    const quality = assetQuality(asset);
     return (
       <section className="asset-detail-layout">
         <section className="detail-stack">
           {renderAssetProfilePanel(asset, [
-            { label: locale === "zh" ? "外部 ID" : "External ID", value: asset.external_id, mono: true },
-            { label: locale === "zh" ? "来源" : "Source", value: metadataText(asset.metadata_json, ["source"]) || "-" },
-            { label: locale === "zh" ? "资源类型" : "Resource Type", value: metadataText(asset.metadata_json, ["resource_type"]) || "-" }
+            { label: locale === "zh" ? "外部 ID" : "External ID", value: asset.external_id, mono: true, source: fieldSource(quality, "identity") },
+            { label: locale === "zh" ? "来源" : "Source", value: metadataText(asset.metadata_json, ["source"]) || "-", source: fieldSource(quality, "identity") },
+            { label: locale === "zh" ? "资源类型" : "Resource Type", value: metadataText(asset.metadata_json, ["resource_type"]) || "-", source: fieldSource(quality, "identity") }
           ])}
+          {renderDataQualityPanel(asset)}
         </section>
         <section className="detail-stack">
           {renderOpsPanel(asset)}
@@ -3844,6 +3929,158 @@ function MetadataLine({ label, value }: { label: string; value: string }): JSX.E
   );
 }
 
+function SourceTag({ source, locale }: { source: string; locale: Locale }): JSX.Element | null {
+  if (!source) {
+    return null;
+  }
+  return (
+    <span className={`source-tag is-${source.replace(/_/g, "-")}`} title={sourceDescription(source, locale)}>
+      {sourceLabel(source, locale)}
+    </span>
+  );
+}
+
+function assetQuality(asset: Asset): NonNullable<Asset["data_quality"]> {
+  return {
+    field_sources: asset.data_quality?.field_sources ?? {},
+    collection: asset.data_quality?.collection ?? { status: "never", message: "", checked_at: null, check_type: "", target: "" },
+    gaps: asset.data_quality?.gaps ?? [],
+    recommended_actions: asset.data_quality?.recommended_actions ?? []
+  };
+}
+
+function fieldSource(quality: NonNullable<Asset["data_quality"]>, key: string): string {
+  return quality.field_sources?.[key] || "missing";
+}
+
+function sourceKeysForAsset(asset: Asset): string[] {
+  if (["ecs", "swas", "server"].includes(asset.type)) {
+    return ["identity", "network", "spec", "usage", "renewal", "ssh", "bt_panel"];
+  }
+  if (asset.type === "oss") {
+    return ["identity", "network", "spec", "renewal"];
+  }
+  if (asset.type === "domain" || asset.type === "dns") {
+    return ["identity", "renewal", "entrypoint"];
+  }
+  return ["identity", "network", "spec", "renewal"];
+}
+
+function sourceFieldLabel(key: string, locale: Locale): string {
+  const zh: Record<string, string> = {
+    identity: "基础资料",
+    network: "网络",
+    spec: "规格",
+    usage: "使用率",
+    renewal: "续费",
+    entrypoint: "入口",
+    ssh: "SSH",
+    bt_panel: "宝塔"
+  };
+  const en: Record<string, string> = {
+    identity: "Profile",
+    network: "Network",
+    spec: "Spec",
+    usage: "Usage",
+    renewal: "Renewal",
+    entrypoint: "Entrypoint",
+    ssh: "SSH",
+    bt_panel: "BT Panel"
+  };
+  return (locale === "zh" ? zh : en)[key] || key;
+}
+
+function sourceLabel(source: string, locale: Locale): string {
+  const zh: Record<string, string> = {
+    aliyun_api: "阿里云",
+    runtime_check: "运行采集",
+    local_profile: "本地资料",
+    encrypted_local_secret: "本地加密",
+    local_database: "本地库",
+    derived: "推导",
+    missing: "缺失"
+  };
+  const en: Record<string, string> = {
+    aliyun_api: "Aliyun",
+    runtime_check: "Runtime",
+    local_profile: "Local",
+    encrypted_local_secret: "Encrypted",
+    local_database: "Local DB",
+    derived: "Derived",
+    missing: "Missing"
+  };
+  return (locale === "zh" ? zh : en)[source] || source;
+}
+
+function sourceDescription(source: string, locale: Locale): string {
+  const zh: Record<string, string> = {
+    aliyun_api: "来自阿里云只读 API 同步。",
+    runtime_check: "来自 SSH 或云助手只读命令采集。",
+    local_profile: "来自你在本地工具里维护的资料。",
+    encrypted_local_secret: "敏感信息已在本地加密保存。",
+    local_database: "来自本地数据库记录。",
+    derived: "由已知资源信息自动推导。",
+    missing: "当前没有可用数据。"
+  };
+  const en: Record<string, string> = {
+    aliyun_api: "Synced from Alibaba Cloud read-only APIs.",
+    runtime_check: "Collected by SSH or Cloud Assistant read-only checks.",
+    local_profile: "Maintained locally in this tool.",
+    encrypted_local_secret: "Stored locally as encrypted secret.",
+    local_database: "Stored in the local database.",
+    derived: "Derived from known resource metadata.",
+    missing: "No data is available yet."
+  };
+  return (locale === "zh" ? zh : en)[source] || source;
+}
+
+function collectionStatusLabel(status: string, locale: Locale): string {
+  const labels = locale === "zh"
+    ? { ok: "成功", failed: "失败", never: "未执行", pending: "待采集" }
+    : { ok: "OK", failed: "Failed", never: "Never Run", pending: "Pending" };
+  return labels[status as keyof typeof labels] || statusLabel(status, locale);
+}
+
+function collectionSummary(collection: Asset["data_quality"]["collection"], locale: Locale): string {
+  if (!collection.checked_at) {
+    return locale === "zh" ? "还没有运行过采集或检查。" : "No collection or check has run yet.";
+  }
+  const time = formatApiDateTime(collection.checked_at, locale);
+  const target = collection.target ? ` · ${collection.target}` : "";
+  const message = collection.message ? ` · ${localizeGeneratedText(collection.message, locale)}` : "";
+  return `${time}${target}${message}`;
+}
+
+function gapLabel(gap: string, locale: Locale): string {
+  const zh: Record<string, string> = {
+    ssh_access_missing: "SSH 未配置",
+    runtime_usage_missing: "使用率未采集",
+    checks_missing: "未建监控",
+    last_collection_failed: "最近采集失败"
+  };
+  const en: Record<string, string> = {
+    ssh_access_missing: "SSH missing",
+    runtime_usage_missing: "Usage missing",
+    checks_missing: "Checks missing",
+    last_collection_failed: "Collection failed"
+  };
+  return (locale === "zh" ? zh : en)[gap] || gap;
+}
+
+function actionLabel(action: string, locale: Locale): string {
+  const zh: Record<string, string> = {
+    configure_ssh_access: "配置 SSH",
+    collect_runtime: "采集使用率",
+    create_default_checks: "生成默认监控"
+  };
+  const en: Record<string, string> = {
+    configure_ssh_access: "Configure SSH",
+    collect_runtime: "Collect Usage",
+    create_default_checks: "Create Checks"
+  };
+  return (locale === "zh" ? zh : en)[action] || action;
+}
+
 function UsageMeters({ asset, locale, compact = false }: { asset: Asset; locale: Locale; compact?: boolean }): JSX.Element {
   const disk = runtimeMetricValue(asset, "disk_used_percent");
   const memory = runtimeMetricValue(asset, "memory_used_percent");
@@ -3907,13 +4144,21 @@ function runtimeMetricValue(asset: Asset, key: string): number | null {
 function runtimeMetricTitle(asset: Asset, key: string, locale: Locale): string {
   const metrics = asset.runtime_metrics || {};
   const checkedAt = metrics[`${key}_checked_at`];
+  const source = typeof metrics[`${key}_source`] === "string" ? String(metrics[`${key}_source`]) : fieldSource(assetQuality(asset), "usage");
   if (typeof checkedAt !== "string" || !checkedAt) {
-    return locale === "zh" ? "来自资产同步或尚无采集时间" : "From asset sync or no collection time";
+    return locale === "zh" ? `来源：${sourceLabel(source, locale)}；暂无采集时间` : `Source: ${sourceLabel(source, locale)}; no collection time`;
   }
-  return `${locale === "zh" ? "最近采集" : "Last collected"}: ${formatApiDateTime(checkedAt, locale)}`;
+  return `${locale === "zh" ? "来源" : "Source"}: ${sourceLabel(source, locale)} · ${locale === "zh" ? "最近采集" : "Last collected"}: ${formatApiDateTime(checkedAt, locale)}`;
 }
 
 function usageEmptyTitle(asset: Asset, locale: Locale): string {
+  const quality = assetQuality(asset);
+  if (quality.collection.status === "failed" && quality.collection.message) {
+    return localizeGeneratedText(quality.collection.message, locale);
+  }
+  if (quality.gaps.includes("ssh_access_missing")) {
+    return locale === "zh" ? "需要先在资产详情中配置 SSH 密码或密钥。" : "Configure SSH password or key in asset details first.";
+  }
   if (asset.type === "swas") {
     return locale === "zh"
       ? "轻量服务器当前需要配置 SSH 访问资料后执行 df/free 只读检查。"

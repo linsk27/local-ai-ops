@@ -444,6 +444,8 @@ def test_runtime_collection_runs_disk_and_memory_checks_for_ssh_profile(monkeypa
         assert [item["status"] for item in payload["results"]] == ["ok", "ok"]
         assert payload["asset"]["runtime_metrics"]["disk_used_percent"] == 30.0
         assert payload["asset"]["runtime_metrics"]["memory_used_percent"] == 25.0
+        assert payload["asset"]["data_quality"]["field_sources"]["usage"] == "runtime_check"
+        assert "runtime_usage_missing" not in payload["asset"]["data_quality"]["gaps"]
         assert [item["command"] for item in captured] == ["df -h", "free -m"]
         assert all(item["username"] == "root" for item in captured)
         assert all(item["password"] == "asset-ssh-password" for item in captured)

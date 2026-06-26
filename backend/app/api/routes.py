@@ -342,18 +342,20 @@ def list_assets(
         stmt = stmt.where(Asset.cloud_account_id == account_id)
     assets = list(db.scalars(stmt).all())
     metrics = _runtime_metrics_for_assets(db, [asset.id for asset in assets])
-    return [_asset_read(asset, metrics.get(asset.id, {})) for asset in assets]
+    quality = _data_quality_for_assets(db, assets, metrics)
+    return [_asset_read(asset, metrics.get(asset.id, {}), quality.get(asset.id, {})) for asset in assets]
 
 
 @router.get("/assets/{asset_id}", response_model=AssetRead)
 def get_asset(asset_id: int, db: DbSession) -> dict:
     asset = _get_asset_or_404(db, asset_id)
     metrics = _runtime_metrics_for_assets(db, [asset.id])
-    return _asset_read(asset, metrics.get(asset.id, {}))
+    quality = _data_quality_for_assets(db, [asset], metrics)
+    return _asset_read(asset, metrics.get(asset.id, {}), quality.get(asset.id, {}))
 
 
 @router.patch("/assets/{asset_id}/ops", response_model=AssetRead)
-def update_asset_ops(asset_id: int, payload: AssetOpsUpdate, db: DbSession) -> Asset:
+def update_asset_ops(asset_id: int, payload: AssetOpsUpdate, db: DbSession) -> dict:
     asset = _get_asset_or_404(db, asset_id)
     metadata = dict(asset.metadata_json or {})
     existing_ops = metadata.get("ops")
@@ -374,7 +376,9 @@ def update_asset_ops(asset_id: int, payload: AssetOpsUpdate, db: DbSession) -> A
     )
     db.commit()
     db.refresh(asset)
-    return asset
+    metrics = _runtime_metrics_for_assets(db, [asset.id])
+    quality = _data_quality_for_assets(db, [asset], metrics)
+    return _asset_read(asset, metrics.get(asset.id, {}), quality.get(asset.id, {}))
 
 
 @router.get("/assets/{asset_id}/access-profile", response_model=ServerAccessProfileRead)
@@ -573,7 +577,8 @@ def collect_asset_runtime(asset_id: int, db: DbSession) -> dict:
 
     db.refresh(asset)
     metrics = _runtime_metrics_for_assets(db, [asset.id]).get(asset.id, {})
-    return {"asset": _asset_read(asset, metrics), "results": results}
+    quality = _data_quality_for_assets(db, [asset], {asset.id: metrics})
+    return {"asset": _asset_read(asset, metrics, quality.get(asset.id, {})), "results": results}
 
 
 @router.post("/assets/{asset_id}/checks/defaults", response_model=list[CheckRead])
@@ -829,7 +834,7 @@ def _get_or_create_check(db: DbSession, asset: Asset, spec: dict) -> tuple[Check
     return check, True
 
 
-def _asset_read(asset: Asset, runtime_metrics: dict | None = None) -> dict:
+def _asset_read(asset: Asset, runtime_metrics: dict | None = None, data_quality: dict | None = None) -> dict:
     return {
         "id": asset.id,
         "cloud_account_id": asset.cloud_account_id,
@@ -841,8 +846,127 @@ def _asset_read(asset: Asset, runtime_metrics: dict | None = None) -> dict:
         "status": asset.status,
         "metadata_json": asset.metadata_json or {},
         "runtime_metrics": runtime_metrics or {},
+        "data_quality": data_quality or {},
         "last_seen_at": asset.last_seen_at,
     }
+
+
+def _data_quality_for_assets(db: DbSession, assets: list[Asset], metrics_by_asset: dict[int, dict]) -> dict[int, dict]:
+    if not assets:
+        return {}
+    asset_ids = [asset.id for asset in assets]
+    profiles = {
+        profile.asset_id: profile
+        for profile in db.scalars(select(ServerAccessProfile).where(ServerAccessProfile.asset_id.in_(asset_ids))).all()
+    }
+    checks = list(db.scalars(select(Check).where(Check.asset_id.in_(asset_ids))).all())
+    checks_by_asset: dict[int, list[Check]] = {}
+    for check in checks:
+        if check.asset_id is not None:
+            checks_by_asset.setdefault(check.asset_id, []).append(check)
+
+    latest_result_by_asset: dict[int, tuple[CheckResult, Check]] = {}
+    latest_runtime_by_asset: dict[int, tuple[CheckResult, Check]] = {}
+    result_rows = (
+        db.execute(
+            select(CheckResult, Check)
+            .join(Check, CheckResult.check_id == Check.id)
+            .where(CheckResult.asset_id.in_(asset_ids))
+            .order_by(desc(CheckResult.checked_at))
+            .limit(2000)
+        )
+        .all()
+    )
+    for result, check in result_rows:
+        if result.asset_id is None:
+            continue
+        latest_result_by_asset.setdefault(result.asset_id, (result, check))
+        if _metric_key_for_result(check):
+            latest_runtime_by_asset.setdefault(result.asset_id, (result, check))
+
+    quality_by_asset: dict[int, dict] = {}
+    for asset in assets:
+        metadata = dict(asset.metadata_json or {})
+        ops = metadata.get("ops") if isinstance(metadata.get("ops"), dict) else {}
+        profile = profiles.get(asset.id)
+        profile_secret_configured = bool(profile and profile.secret_id and db.get(EncryptedSecret, profile.secret_id))
+        metrics = metrics_by_asset.get(asset.id, {})
+        has_usage = _asset_has_usage_metrics(metadata, metrics)
+        asset_checks = checks_by_asset.get(asset.id, [])
+        latest = latest_runtime_by_asset.get(asset.id) or latest_result_by_asset.get(asset.id)
+        collection = _collection_status_payload(latest)
+        field_sources = {
+            "identity": "aliyun_api" if asset.last_seen_at else "local_database",
+            "network": "aliyun_api" if _has_any(metadata, ["public_ip", "public_ip_address", "private_ip_address", "inner_ip_address"]) else "missing",
+            "spec": "aliyun_api" if _has_any(metadata, ["cpu", "memory", "memory_gb", "disk", "disk_gb", "bandwidth"]) else "missing",
+            "renewal": "local_profile" if isinstance(ops, dict) and _has_any(ops, ["renewal_expires_at", "renewal_auto_renew", "renewal_notes"]) else ("aliyun_api" if _has_any(metadata, ["expires_at", "expired_time", "auto_renew_enabled"]) else "missing"),
+            "entrypoint": "local_profile" if isinstance(ops, dict) and _has_any(ops, ["service_url", "login_url"]) else "derived",
+            "usage": _usage_source(metadata, metrics),
+            "ssh": "encrypted_local_secret" if profile_secret_configured else ("local_profile" if profile else "missing"),
+            "bt_panel": "encrypted_local_secret" if _bt_panel_secret(db, asset.id) else ("local_profile" if isinstance(metadata.get("bt_panel"), dict) else "missing"),
+        }
+        gaps: list[str] = []
+        recommended_actions: list[str] = []
+        if asset.type in {"ecs", "swas", "server"}:
+            if not profile or not profile.enabled or not profile.username or not profile_secret_configured:
+                gaps.append("ssh_access_missing")
+                recommended_actions.append("configure_ssh_access")
+            if not has_usage:
+                gaps.append("runtime_usage_missing")
+                recommended_actions.append("collect_runtime")
+            if not asset_checks:
+                gaps.append("checks_missing")
+                recommended_actions.append("create_default_checks")
+        elif asset.type in {"domain", "dns", "oss"} and not asset_checks:
+            gaps.append("checks_missing")
+            recommended_actions.append("create_default_checks")
+        if collection["status"] == "failed":
+            gaps.append("last_collection_failed")
+
+        quality_by_asset[asset.id] = {
+            "field_sources": field_sources,
+            "collection": collection,
+            "gaps": sorted(set(gaps)),
+            "recommended_actions": sorted(set(recommended_actions)),
+        }
+    return quality_by_asset
+
+
+def _collection_status_payload(latest: tuple[CheckResult, Check] | None) -> dict:
+    if not latest:
+        return {"status": "never", "message": "", "checked_at": None, "check_type": "", "target": ""}
+    result, check = latest
+    return {
+        "status": result.status,
+        "message": redact_text(result.message),
+        "checked_at": result.checked_at.isoformat(),
+        "check_type": check.type,
+        "target": check.target,
+        "value": result.value,
+        "latency_ms": result.latency_ms,
+    }
+
+
+def _asset_has_usage_metrics(metadata: dict, metrics: dict) -> bool:
+    return _number_or_none(metrics.get("disk_used_percent")) is not None or _number_or_none(metrics.get("memory_used_percent")) is not None or _number_or_none(metadata.get("disk_used_percent")) is not None or _number_or_none(metadata.get("memory_used_percent")) is not None
+
+
+def _usage_source(metadata: dict, metrics: dict) -> str:
+    disk_source = metrics.get("disk_used_percent_source")
+    memory_source = metrics.get("memory_used_percent_source")
+    if disk_source or memory_source:
+        return "runtime_check" if "asset_metadata" not in {disk_source, memory_source} else "aliyun_api"
+    if _number_or_none(metadata.get("disk_used_percent")) is not None or _number_or_none(metadata.get("memory_used_percent")) is not None:
+        return "aliyun_api"
+    return "missing"
+
+
+def _has_any(values: dict, keys: list[str]) -> bool:
+    for key in keys:
+        value = values.get(key)
+        if value not in (None, "", [], {}):
+            return True
+    return False
 
 
 def _runtime_metrics_for_assets(db: DbSession, asset_ids: list[int]) -> dict[int, dict]:

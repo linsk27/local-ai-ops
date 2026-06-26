@@ -75,6 +75,7 @@ class AssetRead(OrmModel):
     status: str
     metadata_json: dict[str, Any]
     runtime_metrics: dict[str, Any] = Field(default_factory=dict)
+    data_quality: dict[str, Any] = Field(default_factory=dict)
     last_seen_at: datetime | None = None
 
 

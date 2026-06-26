@@ -34,7 +34,25 @@ export interface Asset {
   status: string;
   metadata_json: Record<string, unknown>;
   runtime_metrics: Record<string, unknown>;
+  data_quality: AssetDataQuality;
   last_seen_at: string | null;
+}
+
+export interface AssetCollectionStatus {
+  status: string;
+  message: string;
+  checked_at: string | null;
+  check_type: string;
+  target: string;
+  value?: number | null;
+  latency_ms?: number | null;
+}
+
+export interface AssetDataQuality {
+  field_sources: Record<string, string>;
+  collection: AssetCollectionStatus;
+  gaps: string[];
+  recommended_actions: string[];
 }
 
 export interface ServerAccessProfile {
