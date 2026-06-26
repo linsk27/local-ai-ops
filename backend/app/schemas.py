@@ -272,6 +272,7 @@ class DashboardSummary(BaseModel):
     website_uptime_total: int = 0
     website_uptime_checked_at: datetime | None = None
     website_uptime_window: str = "latest_50_http_checks"
+    risk_summary: list[dict[str, Any]] = Field(default_factory=list)
     risk_items: list[dict[str, Any]]
 
 

@@ -132,7 +132,8 @@ export interface DashboardSummary {
   website_uptime_total: number;
   website_uptime_checked_at: string | null;
   website_uptime_window: string;
-  risk_items: Array<{ asset_id: number; asset: string; kind: string; value: number }>;
+  risk_summary: Array<{ kind: string; count: number; severity: string }>;
+  risk_items: Array<{ asset_id: number; asset: string; asset_type?: string; kind: string; value: number | null; severity?: string }>;
 }
 
 export interface AiConfig {

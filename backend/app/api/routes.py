@@ -115,6 +115,10 @@ def test_ai_settings(db: DbSession) -> AiConfigTestResult:
 @router.get("/dashboard", response_model=DashboardSummary)
 def dashboard(db: DbSession) -> DashboardSummary:
     assets = db.scalars(select(Asset)).all()
+    access_profiles = {
+        profile.asset_id: profile
+        for profile in db.scalars(select(ServerAccessProfile)).all()
+    }
     assets_by_type: dict[str, int] = {}
     for asset in assets:
         assets_by_type[asset.type] = assets_by_type.get(asset.type, 0) + 1
@@ -127,15 +131,26 @@ def dashboard(db: DbSession) -> DashboardSummary:
     website_uptime_ok = sum(1 for item in http_results if item.status == "ok")
     website_uptime = round((website_uptime_ok / website_uptime_total) * 100, 2) if website_uptime_total else None
     website_uptime_checked_at = http_results[0].checked_at if http_results else None
-    risks = []
+    risks: list[dict[str, object]] = []
+    risk_summary: dict[str, dict[str, object]] = {}
     for asset in assets:
         meta = asset.metadata_json or {}
         disk_used = _number_or_none(meta.get("disk_used_percent"))
+        memory_used = _number_or_none(meta.get("memory_used_percent"))
         expires_in_days = _number_or_none(meta.get("expires_in_days"))
         if disk_used is not None and disk_used >= 85:
-            risks.append({"asset_id": asset.id, "asset": asset.name, "kind": "disk", "value": disk_used})
+            _add_risk(risks, risk_summary, asset, "disk_high", disk_used, "critical" if disk_used >= 90 else "warning")
+        if memory_used is not None and memory_used >= 85:
+            _add_risk(risks, risk_summary, asset, "memory_high", memory_used, "critical" if memory_used >= 90 else "warning")
         if expires_in_days is not None and expires_in_days <= 45:
-            risks.append({"asset_id": asset.id, "asset": asset.name, "kind": "domain_expiry", "value": expires_in_days})
+            _add_risk(risks, risk_summary, asset, "expiring", expires_in_days, "critical" if expires_in_days <= 15 else "warning")
+        if asset.type in {"ecs", "swas"}:
+            profile = access_profiles.get(asset.id)
+            if not profile or not profile.enabled or not profile.username or not profile.secret_id:
+                _add_risk(risks, risk_summary, asset, "access_missing", None, "info")
+            if disk_used is None and memory_used is None:
+                _add_risk(risks, risk_summary, asset, "usage_missing", None, "info")
+    risks.sort(key=lambda item: (_severity_rank(str(item.get("severity"))), str(item.get("asset"))))
     return DashboardSummary(
         assets_total=len(assets),
         assets_by_type=assets_by_type,
@@ -145,8 +160,37 @@ def dashboard(db: DbSession) -> DashboardSummary:
         website_uptime_ok=website_uptime_ok,
         website_uptime_total=website_uptime_total,
         website_uptime_checked_at=website_uptime_checked_at,
+        risk_summary=sorted(risk_summary.values(), key=lambda item: (_severity_rank(str(item.get("severity"))), str(item.get("kind")))),
         risk_items=risks[:8],
     )
+
+
+def _add_risk(
+    risks: list[dict[str, object]],
+    summary: dict[str, dict[str, object]],
+    asset: Asset,
+    kind: str,
+    value: float | None,
+    severity: str,
+) -> None:
+    risks.append(
+        {
+            "asset_id": asset.id,
+            "asset": asset.name,
+            "asset_type": asset.type,
+            "kind": kind,
+            "value": value,
+            "severity": severity,
+        }
+    )
+    item = summary.setdefault(kind, {"kind": kind, "count": 0, "severity": severity})
+    item["count"] = int(item["count"]) + 1
+    if _severity_rank(severity) < _severity_rank(str(item["severity"])):
+        item["severity"] = severity
+
+
+def _severity_rank(severity: str) -> int:
+    return {"critical": 0, "warning": 1, "info": 2}.get(severity, 3)
 
 
 def _number_or_none(value: object) -> float | None:

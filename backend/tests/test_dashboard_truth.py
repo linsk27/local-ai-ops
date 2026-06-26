@@ -5,7 +5,7 @@ from sqlalchemy import delete
 
 from app.database import SessionLocal
 from app.main import app
-from app.models import AiDiagnosis, Alert, AlertRule, Check, CheckResult, Incident
+from app.models import AiDiagnosis, Alert, AlertRule, Asset, Check, CheckResult, Incident, ServerAccessProfile
 
 
 def _clear_check_data() -> None:
@@ -16,6 +16,8 @@ def _clear_check_data() -> None:
         db.execute(delete(AlertRule))
         db.execute(delete(CheckResult))
         db.execute(delete(Check))
+        db.execute(delete(ServerAccessProfile))
+        db.execute(delete(Asset))
         db.commit()
 
 
@@ -55,3 +57,45 @@ def test_dashboard_uptime_is_calculated_from_latest_http_samples() -> None:
     assert payload["website_uptime_ok"] == 2
     assert payload["website_uptime_total"] == 3
     assert payload["website_uptime_checked_at"] is not None
+
+
+def test_dashboard_risk_overview_uses_real_asset_signals() -> None:
+    with TestClient(app) as client:
+        _clear_check_data()
+        with SessionLocal() as db:
+            db.add_all(
+                [
+                    Asset(
+                        provider="aliyun",
+                        type="swas",
+                        name="pressure-server",
+                        external_id="risk-swas-pressure",
+                        region="cn-hangzhou",
+                        status="running",
+                        metadata_json={"disk_used_percent": 91.2, "memory_used_percent": 88.4, "expires_in_days": 10},
+                    ),
+                    Asset(
+                        provider="aliyun",
+                        type="swas",
+                        name="uncollected-server",
+                        external_id="risk-swas-uncollected",
+                        region="cn-hangzhou",
+                        status="running",
+                        metadata_json={},
+                    ),
+                ]
+            )
+            db.commit()
+
+        response = client.get("/api/dashboard")
+
+    assert response.status_code == 200
+    payload = response.json()
+    summary = {item["kind"]: item["count"] for item in payload["risk_summary"]}
+    assert summary["disk_high"] == 1
+    assert summary["memory_high"] == 1
+    assert summary["expiring"] == 1
+    assert summary["access_missing"] == 2
+    assert summary["usage_missing"] == 1
+    item_kinds = {item["kind"] for item in payload["risk_items"]}
+    assert {"disk_high", "memory_high", "expiring", "access_missing", "usage_missing"} <= item_kinds

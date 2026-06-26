@@ -781,6 +781,61 @@ textarea:focus-visible {
   gap: var(--space-2);
 }
 
+.risk-overview {
+  display: grid;
+  gap: var(--space-3);
+}
+
+.risk-summary-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--space-2);
+}
+
+.risk-summary-card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  min-block-size: 44px;
+  padding: var(--space-2) var(--space-3);
+  border: var(--rule-thin) solid var(--color-rule);
+  border-radius: var(--radius-sm);
+  background: var(--color-surface);
+}
+
+.risk-summary-card span {
+  overflow: hidden;
+  color: var(--color-ink-muted);
+  font-size: var(--text-xs);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.risk-summary-card strong {
+  font-family: var(--font-display);
+  font-size: var(--text-lg);
+}
+
+.risk-summary-card.is-critical {
+  border-color: color-mix(in srgb, var(--color-red) 46%, var(--color-rule));
+  background: color-mix(in srgb, var(--color-red) 10%, var(--color-surface));
+}
+
+.risk-summary-card.is-warning {
+  border-color: color-mix(in srgb, var(--color-amber) 48%, var(--color-rule));
+  background: var(--color-amber-soft);
+}
+
+.risk-summary-card.is-info {
+  border-color: color-mix(in srgb, var(--color-accent) 36%, var(--color-rule));
+  background: color-mix(in srgb, var(--color-accent-soft) 60%, var(--color-surface));
+}
+
+.risk-summary-card.is-empty strong {
+  color: var(--color-ink-muted);
+}
+
 .risk-item {
   display: flex;
   align-items: center;
@@ -794,9 +849,31 @@ textarea:focus-visible {
   color: var(--color-amber);
 }
 
+.risk-item.is-critical {
+  background: color-mix(in srgb, var(--color-red) 11%, var(--color-surface));
+}
+
+.risk-item.is-critical svg {
+  color: var(--color-red);
+}
+
+.risk-item.is-info {
+  background: color-mix(in srgb, var(--color-accent-soft) 64%, var(--color-surface));
+}
+
+.risk-item.is-info svg {
+  color: var(--color-accent);
+}
+
 .risk-item strong,
 .risk-item span {
   display: block;
+}
+
+.risk-more {
+  margin: 0;
+  color: var(--color-ink-muted);
+  font-size: var(--text-xs);
 }
 
 .risk-item span,

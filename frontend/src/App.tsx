@@ -52,6 +52,7 @@ type ConfirmDialogOptions = {
 
 const assetFilters: AssetFilter[] = ["all", "server", "oss", "domain", "dns"];
 const assetPageSizeOptions = [10, 20, 50];
+const riskOverviewKinds = ["disk_high", "memory_high", "expiring", "access_missing", "usage_missing"];
 const ALIYUN_RENEWAL_URL = "https://billing-cost.console.aliyun.com/renew/manual";
 
 const EChart = lazy(() => import("./EChart"));
@@ -105,7 +106,7 @@ const copy = {
       regionDistribution: "地域分布",
       uptimeChart: "网站探活成功率",
       renewalTimeline: "服务器到期",
-      riskQueue: "风险队列",
+      riskQueue: "风险概览",
       recentAlerts: "最近告警",
       addAccount: "添加 RAM 账号",
       accounts: "已接入账号",
@@ -268,7 +269,7 @@ const copy = {
       regionDistribution: "Region Distribution",
       uptimeChart: "HTTP Probe Success",
       renewalTimeline: "Server Expiry",
-      riskQueue: "Risk Queue",
+      riskQueue: "Risk Overview",
       recentAlerts: "Recent Alerts",
       addAccount: "Add RAM Account",
       accounts: "Connected Accounts",
@@ -408,6 +409,7 @@ const initialDashboard: DashboardSummary = {
   website_uptime_total: 0,
   website_uptime_checked_at: null,
   website_uptime_window: "latest_50_http_checks",
+  risk_summary: [],
   risk_items: []
 };
 
@@ -2047,18 +2049,7 @@ export function App(): JSX.Element {
 
             <section className="panel">
               <PanelHeader title={t.panels.riskQueue} />
-              <div className="risk-list">
-                {dashboard.risk_items.map((risk) => (
-                  <div className="risk-item" key={`${risk.asset_id}-${risk.kind}`}>
-                    <AlertTriangle aria-hidden="true" />
-                    <div>
-                      <strong>{risk.asset}</strong>
-                      <span>{risk.kind === "disk" ? `${locale === "zh" ? "磁盘" : "Disk"} ${risk.value}%` : `${locale === "zh" ? "域名" : "Domain"} ${risk.value} ${locale === "zh" ? "天后到期" : "days left"}`}</span>
-                    </div>
-                  </div>
-                ))}
-                {dashboard.risk_items.length === 0 && <EmptyState text={t.empty.noRisks} />}
-              </div>
+              <RiskOverview summary={dashboard.risk_summary ?? []} items={dashboard.risk_items ?? []} locale={locale} />
             </section>
 
             <section className="panel span-3">
@@ -3526,6 +3517,88 @@ function Metric({
       {note && <small>{note}</small>}
     </div>
   );
+}
+
+function RiskOverview({
+  summary,
+  items,
+  locale
+}: {
+  summary: DashboardSummary["risk_summary"];
+  items: DashboardSummary["risk_items"];
+  locale: Locale;
+}): JSX.Element {
+  const summaryByKind = new Map(summary.map((item) => [item.kind, item]));
+  const total = summary.reduce((sum, item) => sum + item.count, 0);
+  return (
+    <div className="risk-overview">
+      <div className="risk-summary-grid" aria-label={locale === "zh" ? "风险分类" : "Risk categories"}>
+        {riskOverviewKinds.map((kind) => {
+          const item = summaryByKind.get(kind);
+          const count = item?.count ?? 0;
+          const severity = count > 0 ? item?.severity ?? "info" : "empty";
+          return (
+            <div className={`risk-summary-card is-${severity}`} key={kind}>
+              <span>{riskKindLabel(kind, locale)}</span>
+              <strong>{count}</strong>
+            </div>
+          );
+        })}
+      </div>
+      <div className="risk-list">
+        {items.slice(0, 5).map((risk) => (
+          <div className={`risk-item is-${risk.severity ?? "info"}`} key={`${risk.asset_id}-${risk.kind}`}>
+            <AlertTriangle aria-hidden="true" />
+            <div>
+              <strong>{risk.asset}</strong>
+              <span>{riskDetailText(risk, locale)}</span>
+            </div>
+          </div>
+        ))}
+        {total === 0 && <EmptyState text={locale === "zh" ? "暂无风险或采集缺口" : "No risks or collection gaps"} />}
+        {items.length > 5 && (
+          <p className="risk-more">
+            {locale === "zh" ? `还有 ${items.length - 5} 项未展示` : `${items.length - 5} more hidden`}
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function riskKindLabel(kind: string, locale: Locale): string {
+  const zh: Record<string, string> = {
+    disk_high: "磁盘高",
+    memory_high: "内存高",
+    expiring: "即将到期",
+    access_missing: "SSH 未配置",
+    usage_missing: "未采集"
+  };
+  const en: Record<string, string> = {
+    disk_high: "Disk High",
+    memory_high: "Memory High",
+    expiring: "Expiring",
+    access_missing: "SSH Missing",
+    usage_missing: "No Usage"
+  };
+  return (locale === "zh" ? zh : en)[kind] ?? kind;
+}
+
+function riskDetailText(risk: DashboardSummary["risk_items"][number], locale: Locale): string {
+  const label = riskKindLabel(risk.kind, locale);
+  if ((risk.kind === "disk_high" || risk.kind === "memory_high") && typeof risk.value === "number") {
+    return `${label} ${Number(risk.value.toFixed(1))}%`;
+  }
+  if (risk.kind === "expiring" && typeof risk.value === "number") {
+    return locale === "zh" ? `${label}：${Math.round(risk.value)} 天内` : `${label}: ${Math.round(risk.value)} days`;
+  }
+  if (risk.kind === "access_missing") {
+    return locale === "zh" ? "缺少可用 SSH 用户名或密码/私钥" : "Missing usable SSH username or password/key";
+  }
+  if (risk.kind === "usage_missing") {
+    return locale === "zh" ? "还没有内存/磁盘使用率采集结果" : "No memory/disk usage sample yet";
+  }
+  return label;
 }
 
 function summarizeChecks(checks: Check[]): { total: number; failing: number; ok: number; never: number; disabled: number } {
