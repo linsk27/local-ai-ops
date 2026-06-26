@@ -267,7 +267,11 @@ class DashboardSummary(BaseModel):
     assets_by_type: dict[str, int]
     open_alerts: int
     checks_total: int
-    website_uptime: float
+    website_uptime: float | None
+    website_uptime_ok: int = 0
+    website_uptime_total: int = 0
+    website_uptime_checked_at: datetime | None = None
+    website_uptime_window: str = "latest_50_http_checks"
     risk_items: list[dict[str, Any]]
 
 

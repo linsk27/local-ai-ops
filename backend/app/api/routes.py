@@ -123,24 +123,43 @@ def dashboard(db: DbSession) -> DashboardSummary:
     http_results = db.scalars(
         select(CheckResult).join(Check, Check.id == CheckResult.check_id).where(Check.type == "http").order_by(desc(CheckResult.checked_at)).limit(50)
     ).all()
-    website_uptime = 100.0
-    if http_results:
-        website_uptime = round((sum(1 for item in http_results if item.status == "ok") / len(http_results)) * 100, 2)
+    website_uptime_total = len(http_results)
+    website_uptime_ok = sum(1 for item in http_results if item.status == "ok")
+    website_uptime = round((website_uptime_ok / website_uptime_total) * 100, 2) if website_uptime_total else None
+    website_uptime_checked_at = http_results[0].checked_at if http_results else None
     risks = []
     for asset in assets:
         meta = asset.metadata_json or {}
-        if meta.get("disk_used_percent", 0) >= 85:
-            risks.append({"asset_id": asset.id, "asset": asset.name, "kind": "disk", "value": meta["disk_used_percent"]})
-        if meta.get("expires_in_days", 999) <= 45:
-            risks.append({"asset_id": asset.id, "asset": asset.name, "kind": "domain_expiry", "value": meta["expires_in_days"]})
+        disk_used = _number_or_none(meta.get("disk_used_percent"))
+        expires_in_days = _number_or_none(meta.get("expires_in_days"))
+        if disk_used is not None and disk_used >= 85:
+            risks.append({"asset_id": asset.id, "asset": asset.name, "kind": "disk", "value": disk_used})
+        if expires_in_days is not None and expires_in_days <= 45:
+            risks.append({"asset_id": asset.id, "asset": asset.name, "kind": "domain_expiry", "value": expires_in_days})
     return DashboardSummary(
         assets_total=len(assets),
         assets_by_type=assets_by_type,
         open_alerts=open_alerts,
         checks_total=checks_total,
         website_uptime=website_uptime,
+        website_uptime_ok=website_uptime_ok,
+        website_uptime_total=website_uptime_total,
+        website_uptime_checked_at=website_uptime_checked_at,
         risk_items=risks[:8],
     )
+
+
+def _number_or_none(value: object) -> float | None:
+    if isinstance(value, bool) or value is None:
+        return None
+    if isinstance(value, (int, float)):
+        return float(value)
+    if isinstance(value, str):
+        try:
+            return float(value.strip())
+        except ValueError:
+            return None
+    return None
 
 
 @router.post("/cloud-accounts", response_model=CloudAccountRead)

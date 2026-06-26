@@ -127,7 +127,11 @@ export interface DashboardSummary {
   assets_by_type: Record<string, number>;
   open_alerts: number;
   checks_total: number;
-  website_uptime: number;
+  website_uptime: number | null;
+  website_uptime_ok: number;
+  website_uptime_total: number;
+  website_uptime_checked_at: string | null;
+  website_uptime_window: string;
   risk_items: Array<{ asset_id: number; asset: string; kind: string; value: number }>;
 }
 

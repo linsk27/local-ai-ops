@@ -98,12 +98,12 @@ const copy = {
       assets: "资源总数",
       alerts: "开放告警",
       checks: "监控项",
-      uptime: "网站可用率"
+      uptime: "网站探活成功率"
     },
     panels: {
       assetDistribution: "资产分布",
       regionDistribution: "地域分布",
-      uptimeChart: "网站可用率",
+      uptimeChart: "网站探活成功率",
       renewalTimeline: "服务器到期",
       riskQueue: "风险队列",
       recentAlerts: "最近告警",
@@ -261,12 +261,12 @@ const copy = {
       assets: "Assets",
       alerts: "Open Alerts",
       checks: "Checks",
-      uptime: "Website Uptime"
+      uptime: "HTTP Probe Success"
     },
     panels: {
       assetDistribution: "Asset Distribution",
       regionDistribution: "Region Distribution",
-      uptimeChart: "Website Uptime",
+      uptimeChart: "HTTP Probe Success",
       renewalTimeline: "Server Expiry",
       riskQueue: "Risk Queue",
       recentAlerts: "Recent Alerts",
@@ -403,7 +403,11 @@ const initialDashboard: DashboardSummary = {
   assets_by_type: {},
   open_alerts: 0,
   checks_total: 0,
-  website_uptime: 100,
+  website_uptime: null,
+  website_uptime_ok: 0,
+  website_uptime_total: 0,
+  website_uptime_checked_at: null,
+  website_uptime_window: "latest_50_http_checks",
   risk_items: []
 };
 
@@ -518,6 +522,24 @@ export function App(): JSX.Element {
     api_key: "",
     model: "gpt-4.1-mini"
   });
+  const uptimeHasData = dashboard.website_uptime_total > 0 && typeof dashboard.website_uptime === "number" && Number.isFinite(dashboard.website_uptime);
+  const uptimeValue = uptimeHasData ? dashboard.website_uptime as number : null;
+  const uptimeMetricValue = uptimeValue !== null ? `${uptimeValue}%` : (locale === "zh" ? "未采集" : "No data");
+  const uptimeMetricNote = dashboard.website_uptime_total > 0
+    ? locale === "zh"
+      ? `${dashboard.website_uptime_ok}/${dashboard.website_uptime_total} 探活样本`
+      : `${dashboard.website_uptime_ok}/${dashboard.website_uptime_total} probe samples`
+    : locale === "zh"
+      ? "暂无 HTTP 样本"
+      : "No HTTP samples";
+  const uptimeMetricTone: "neutral" | "good" | "warn" | "bad" = uptimeValue === null
+    ? "neutral"
+    : uptimeValue >= 99
+      ? "good"
+      : uptimeValue >= 95
+        ? "warn"
+        : "bad";
+  const uptimeCaption = formatUptimeCaption(dashboard, locale);
 
   const filteredAssets = useMemo(() => {
     const query = assetSearch.trim().toLowerCase();
@@ -626,7 +648,10 @@ export function App(): JSX.Element {
   const expiryRows = useMemo(() => upcomingServerExpiries(assets), [assets]);
   const assetDistributionOption = useMemo(() => buildAssetDistributionOption(assetDistributionRows, locale), [assetDistributionRows, locale]);
   const regionDistributionOption = useMemo(() => buildRegionDistributionOption(regionDistributionRows, locale), [regionDistributionRows, locale]);
-  const uptimeOption = useMemo(() => buildUptimeOption(dashboard.website_uptime, locale), [dashboard.website_uptime, locale]);
+  const uptimeOption = useMemo(
+    () => buildUptimeOption(dashboard.website_uptime, locale, dashboard.website_uptime_ok, dashboard.website_uptime_total),
+    [dashboard.website_uptime, dashboard.website_uptime_ok, dashboard.website_uptime_total, locale]
+  );
   const expiryOption = useMemo(() => buildExpiryOption(expiryRows, locale), [expiryRows, locale]);
 
   useEffect(() => {
@@ -1987,7 +2012,7 @@ export function App(): JSX.Element {
               <Metric label={t.metrics.assets} value={dashboard.assets_total} icon={Database} />
               <Metric label={t.metrics.alerts} value={dashboard.open_alerts} icon={AlertTriangle} tone={dashboard.open_alerts > 0 ? "bad" : "good"} />
               <Metric label={t.metrics.checks} value={dashboard.checks_total} icon={Activity} />
-              <Metric label={t.metrics.uptime} value={`${dashboard.website_uptime}%`} icon={Globe2} tone={dashboard.website_uptime >= 99 ? "good" : "warn"} />
+              <Metric label={t.metrics.uptime} value={uptimeMetricValue} icon={Globe2} tone={uptimeMetricTone} note={uptimeMetricNote} />
             </div>
 
             <ChartPanel
@@ -2009,6 +2034,7 @@ export function App(): JSX.Element {
             <ChartPanel
               title={t.panels.uptimeChart}
               option={uptimeOption}
+              caption={uptimeCaption}
             />
 
             <ChartPanel
@@ -3479,12 +3505,25 @@ function ConfirmDialog({
   );
 }
 
-function Metric({ label, value, icon: Icon, tone = "neutral" }: { label: string; value: string | number; icon: typeof Gauge; tone?: "neutral" | "good" | "warn" | "bad" }): JSX.Element {
+function Metric({
+  label,
+  value,
+  icon: Icon,
+  tone = "neutral",
+  note
+}: {
+  label: string;
+  value: string | number;
+  icon: typeof Gauge;
+  tone?: "neutral" | "good" | "warn" | "bad";
+  note?: string;
+}): JSX.Element {
   return (
     <div className={`metric is-${tone}`}>
       <Icon aria-hidden="true" />
       <span>{label}</span>
       <strong>{value}</strong>
+      {note && <small>{note}</small>}
     </div>
   );
 }
@@ -3614,6 +3653,7 @@ function ChartPanel({
   empty = false,
   emptyText = "",
   action,
+  caption,
   className = ""
 }: {
   title: string;
@@ -3621,6 +3661,7 @@ function ChartPanel({
   empty?: boolean;
   emptyText?: string;
   action?: React.ReactNode;
+  caption?: string;
   className?: string;
 }): JSX.Element {
   return (
@@ -3633,6 +3674,7 @@ function ChartPanel({
           <EChart option={option} />
         </Suspense>
       )}
+      {caption && <p className="chart-caption">{caption}</p>}
     </section>
   );
 }
@@ -3987,13 +4029,33 @@ function buildRegionDistributionOption(rows: ChartDatum[], locale: Locale): ECha
   };
 }
 
-function buildUptimeOption(value: number, locale: Locale): EChartsOption {
-  const normalized = Number.isFinite(value) ? Math.max(0, Math.min(100, Number(value.toFixed(2)))) : 0;
-  const toneColor = normalized >= 99 ? chartPalette[0] : normalized >= 95 ? "#d59a25" : "#b75a55";
+function formatUptimeCaption(summary: DashboardSummary, locale: Locale): string {
+  if (summary.website_uptime_total === 0 || summary.website_uptime === null) {
+    return locale === "zh"
+      ? "暂无 HTTP 探活样本。创建并执行网站探活后再计算成功率。"
+      : "No HTTP probe samples yet. Create and run HTTP checks before calculating success rate.";
+  }
+  const sampleText = locale === "zh"
+    ? `最近 ${summary.website_uptime_total} 次 HTTP 探活，成功 ${summary.website_uptime_ok} 次。`
+    : `Latest ${summary.website_uptime_total} HTTP probes, ${summary.website_uptime_ok} succeeded.`;
+  const timeText = summary.website_uptime_checked_at
+    ? `${locale === "zh" ? "最近采集" : "Last sample"} ${formatApiDateTime(summary.website_uptime_checked_at, locale)}`
+    : "";
+  return timeText ? `${sampleText} ${timeText}` : sampleText;
+}
+
+function buildUptimeOption(value: number | null, locale: Locale, okCount: number, totalCount: number): EChartsOption {
+  const hasData = typeof value === "number" && Number.isFinite(value) && totalCount > 0;
+  const normalized = hasData ? Math.max(0, Math.min(100, Number(value.toFixed(2)))) : 0;
+  const toneColor = !hasData ? chartSubtle : normalized >= 99 ? chartPalette[0] : normalized >= 95 ? "#d59a25" : "#b75a55";
+  const title = locale === "zh" ? "网站探活成功率" : "HTTP probe success";
+  const emptyText = locale === "zh" ? "未采集" : "No data";
   return {
     tooltip: {
       ...chartTooltipStyle,
-      formatter: `${locale === "zh" ? "网站可用率" : "Website uptime"}<br/><strong>${normalized}%</strong>`
+      formatter: hasData
+        ? `${title}<br/><strong>${normalized}%</strong><br/>${locale === "zh" ? "成功" : "Succeeded"}: ${okCount}/${totalCount}`
+        : `${title}<br/><strong>${emptyText}</strong>`
     },
     series: [
       {
@@ -4014,11 +4076,13 @@ function buildUptimeOption(value: number, locale: Locale): EChartsOption {
         axisLine: {
           lineStyle: {
             width: 14,
-            color: [
-              [0.95, "#f0cbc7"],
-              [0.99, "#f2d696"],
-              [1, "#c6ead8"]
-            ]
+            color: hasData
+              ? [
+                  [0.95, "#f0cbc7"],
+                  [0.99, "#f2d696"],
+                  [1, "#c6ead8"]
+                ]
+              : [[1, chartTrack]]
           }
         },
         axisTick: { show: false },
@@ -4026,9 +4090,9 @@ function buildUptimeOption(value: number, locale: Locale): EChartsOption {
         axisLabel: { distance: 18, color: chartSubtle, fontSize: 10 },
         detail: {
           valueAnimation: true,
-          formatter: "{value}%",
+          formatter: hasData ? "{value}%" : emptyText,
           color: chartInk,
-          fontSize: 32,
+          fontSize: hasData ? 32 : 24,
           fontWeight: 800,
           fontFamily: "Aptos Display, Segoe UI, sans-serif",
           offsetCenter: [0, "0%"]
@@ -4038,7 +4102,7 @@ function buildUptimeOption(value: number, locale: Locale): EChartsOption {
           color: chartMuted,
           fontSize: 12
         },
-        data: [{ value: normalized, name: locale === "zh" ? "可用率" : "Uptime" }]
+        data: [{ value: normalized, name: locale === "zh" ? "成功率" : "Success" }]
       }
     ]
   };
