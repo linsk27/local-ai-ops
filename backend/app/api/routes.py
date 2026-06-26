@@ -899,7 +899,7 @@ def _data_quality_for_assets(db: DbSession, assets: list[Asset], metrics_by_asse
             "identity": "aliyun_api" if asset.last_seen_at else "local_database",
             "network": "aliyun_api" if _has_any(metadata, ["public_ip", "public_ip_address", "private_ip_address", "inner_ip_address"]) else "missing",
             "spec": "aliyun_api" if _has_any(metadata, ["cpu", "memory", "memory_gb", "disk", "disk_gb", "bandwidth"]) else "missing",
-            "renewal": "local_profile" if isinstance(ops, dict) and _has_any(ops, ["renewal_expires_at", "renewal_auto_renew", "renewal_notes"]) else ("aliyun_api" if _has_any(metadata, ["expires_at", "expired_time", "auto_renew_enabled"]) else "missing"),
+            "renewal": _renewal_source(metadata, ops if isinstance(ops, dict) else {}),
             "entrypoint": "local_profile" if isinstance(ops, dict) and _has_any(ops, ["service_url", "login_url"]) else "derived",
             "usage": _usage_source(metadata, metrics),
             "ssh": "encrypted_local_secret" if profile_secret_configured else ("local_profile" if profile else "missing"),
@@ -958,6 +958,25 @@ def _usage_source(metadata: dict, metrics: dict) -> str:
         return "runtime_check" if "asset_metadata" not in {disk_source, memory_source} else "aliyun_api"
     if _number_or_none(metadata.get("disk_used_percent")) is not None or _number_or_none(metadata.get("memory_used_percent")) is not None:
         return "aliyun_api"
+    return "missing"
+
+
+def _renewal_source(metadata: dict, ops: dict) -> str:
+    if _has_any(
+        metadata,
+        [
+            "expires_at",
+            "expired_time",
+            "expiration_date",
+            "auto_renew_enabled",
+            "renew_status",
+            "billing_end_time",
+            "billing_product_code",
+        ],
+    ):
+        return "aliyun_api"
+    if _has_any(ops, ["renewal_expires_at", "renewal_auto_renew", "renewal_notes"]):
+        return "local_profile"
     return "missing"
 
 

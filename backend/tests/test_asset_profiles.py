@@ -243,6 +243,63 @@ def test_asset_sync_preserves_manual_domain_service_url() -> None:
     assert merged["ops"]["service_url"] == "https://app.example.com"
 
 
+def test_renewal_source_prefers_aliyun_billing_metadata() -> None:
+    with TestClient(app) as client:
+        external_id = f"swas-renewal-{uuid4().hex[:8]}"
+        with SessionLocal() as db:
+            asset = Asset(
+                provider="aliyun",
+                type="swas",
+                name="synced-renewal-server",
+                external_id=external_id,
+                region="cn-guangzhou",
+                status="running",
+                metadata_json={
+                    "public_ip_address": "203.0.113.30",
+                    "expired_time": "2026-07-02T16:00:00Z",
+                    "renew_status": "AutoRenewal",
+                    "auto_renew_enabled": True,
+                    "billing_end_time": "2026-07-02T16:00:00Z",
+                    "ops": {"renewal_expires_at": "2026-07-02", "renewal_auto_renew": True},
+                },
+                last_seen_at=None,
+            )
+            db.add(asset)
+            db.commit()
+            db.refresh(asset)
+            asset_id = asset.id
+
+        response = client.get(f"/api/assets/{asset_id}")
+        assert response.status_code == 200
+        assert response.json()["data_quality"]["field_sources"]["renewal"] == "aliyun_api"
+
+
+def test_renewal_source_uses_local_profile_when_only_manual_ops_exist() -> None:
+    with TestClient(app) as client:
+        external_id = f"swas-local-renewal-{uuid4().hex[:8]}"
+        with SessionLocal() as db:
+            asset = Asset(
+                provider="aliyun",
+                type="swas",
+                name="local-renewal-server",
+                external_id=external_id,
+                region="cn-guangzhou",
+                status="running",
+                metadata_json={
+                    "public_ip_address": "203.0.113.31",
+                    "ops": {"renewal_expires_at": "2026-12-31", "renewal_notes": "Manual contract note"},
+                },
+            )
+            db.add(asset)
+            db.commit()
+            db.refresh(asset)
+            asset_id = asset.id
+
+        response = client.get(f"/api/assets/{asset_id}")
+        assert response.status_code == 200
+        assert response.json()["data_quality"]["field_sources"]["renewal"] == "local_profile"
+
+
 def test_ssh_check_uses_encrypted_asset_access_profile(monkeypatch) -> None:
     captured: dict[str, str | None] = {}
 
