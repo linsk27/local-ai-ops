@@ -922,11 +922,15 @@ textarea:hover {
 }
 
 .asset-filter-bar {
+  margin-block-start: var(--space-3);
+}
+
+.filter-toolbar {
+  position: relative;
   display: grid;
   grid-template-columns: minmax(280px, 1fr) auto;
   align-items: center;
   gap: var(--space-2);
-  margin-block-start: var(--space-3);
   padding: var(--space-2);
   min-inline-size: 0;
   border: var(--rule-thin) solid color-mix(in srgb, var(--color-rule) 82%, var(--color-accent-soft));
@@ -934,7 +938,7 @@ textarea:hover {
   background: color-mix(in srgb, var(--color-surface-raised) 86%, var(--color-accent-soft));
 }
 
-.asset-search-control {
+.filter-search-control {
   display: inline-flex;
   align-items: center;
   gap: var(--space-2);
@@ -948,20 +952,20 @@ textarea:hover {
   transition: border-color 140ms ease, box-shadow 140ms ease, background 140ms ease;
 }
 
-.asset-search-control:focus-within {
+.filter-search-control:focus-within {
   border-color: color-mix(in srgb, var(--color-accent) 70%, transparent);
   background: var(--color-bg);
   box-shadow: inset 0 0 0 var(--rule-thin) color-mix(in srgb, var(--color-accent) 54%, transparent);
 }
 
-.asset-search-control svg {
+.filter-search-control > svg {
   flex: 0 0 auto;
   inline-size: 16px;
   block-size: 16px;
   color: var(--color-ink-muted);
 }
 
-.asset-search-control input {
+.filter-search-control input {
   inline-size: 100%;
   min-inline-size: 0;
   min-block-size: 0;
@@ -970,12 +974,36 @@ textarea:hover {
   background: transparent;
 }
 
-.asset-search-control input:focus {
+.filter-search-control input:focus {
   outline: none;
   box-shadow: none;
 }
 
-.asset-filter-controls {
+.filter-search-clear {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+  inline-size: 24px;
+  block-size: 24px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--color-ink-muted);
+}
+
+.filter-search-clear:hover {
+  background: var(--color-surface);
+  color: var(--color-ink);
+}
+
+.filter-search-clear svg {
+  inline-size: 14px;
+  block-size: 14px;
+}
+
+.filter-toolbar-controls {
   display: flex;
   align-items: center;
   justify-content: flex-end;
@@ -983,42 +1011,121 @@ textarea:hover {
   min-inline-size: 0;
 }
 
-.asset-filter-control {
-  display: inline-flex;
+.filter-select {
+  position: relative;
+  min-inline-size: 152px;
+}
+
+.filter-select-button {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
   align-items: center;
-  gap: var(--space-1);
+  gap: var(--space-2);
+  inline-size: 100%;
   min-block-size: 36px;
   padding-inline: var(--space-2);
   border: var(--rule-thin) solid var(--color-rule);
   border-radius: var(--radius-sm);
   background: var(--color-surface-raised);
+  color: var(--color-ink);
   font-size: var(--text-sm);
+  text-align: start;
   white-space: nowrap;
+  transition: border-color 140ms ease, background 140ms ease, box-shadow 140ms ease;
 }
 
-.asset-filter-control span {
+.filter-select-button:hover,
+.filter-select.is-open .filter-select-button {
+  border-color: color-mix(in srgb, var(--color-accent) 48%, var(--color-rule));
+  background: var(--color-bg);
+}
+
+.filter-select-label {
   color: var(--color-ink-muted);
   font-size: var(--text-xs);
   font-weight: 700;
 }
 
-.asset-filter-control select {
-  min-inline-size: 104px;
-  max-inline-size: 180px;
+.filter-select-value {
+  overflow: hidden;
+  min-inline-size: 0;
+  font-weight: 700;
+  text-overflow: ellipsis;
+}
+
+.filter-select-chevron {
+  inline-size: 16px;
+  block-size: 16px;
+  color: var(--color-ink-muted);
+  transition: transform 140ms ease;
+}
+
+.filter-select.is-open .filter-select-chevron {
+  transform: rotate(180deg);
+}
+
+.filter-select-menu {
+  position: absolute;
+  z-index: 20;
+  inset-block-start: calc(100% + var(--space-1));
+  inset-inline-end: 0;
+  min-inline-size: 100%;
+  inline-size: max-content;
+  max-inline-size: min(280px, calc(100vw - var(--space-12)));
+  max-block-size: 260px;
+  overflow: auto;
+  padding: var(--space-1);
+  border: var(--rule-thin) solid var(--color-rule);
+  border-radius: var(--radius-md);
+  background: var(--color-surface-raised);
+  box-shadow: var(--shadow-modal);
+}
+
+.filter-select-option {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto auto;
+  align-items: center;
+  gap: var(--space-2);
+  inline-size: 100%;
   min-block-size: 34px;
-  padding: 0 var(--space-1);
+  padding-inline: var(--space-2);
   border: 0;
+  border-radius: var(--radius-sm);
   background: transparent;
   color: var(--color-ink);
-  box-shadow: none;
+  text-align: start;
 }
 
-.asset-filter-control select:focus {
-  outline: none;
-  box-shadow: none;
+.filter-select-option span:first-child {
+  overflow: hidden;
+  min-inline-size: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
-.asset-filter-reset {
+.filter-select-option:hover,
+.filter-select-option.is-selected {
+  background: var(--color-accent-soft);
+  color: var(--color-accent-strong);
+}
+
+.filter-select-option svg {
+  inline-size: 14px;
+  block-size: 14px;
+}
+
+.filter-select-badge {
+  min-inline-size: 20px;
+  padding-inline: var(--space-1);
+  border-radius: 999px;
+  background: var(--color-surface);
+  color: var(--color-ink-muted);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  text-align: center;
+}
+
+.filter-toolbar-reset {
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -1031,12 +1138,12 @@ textarea:hover {
   font-weight: 700;
 }
 
-.asset-filter-reset:hover:not(:disabled) {
+.filter-toolbar-reset:hover:not(:disabled) {
   border-color: color-mix(in srgb, var(--color-accent) 48%, var(--color-rule));
   background: var(--color-accent-soft);
 }
 
-.asset-filter-reset:disabled {
+.filter-toolbar-reset:disabled {
   color: var(--color-ink-muted);
 }
 
@@ -2620,22 +2727,22 @@ code {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .asset-filter-bar {
+  .filter-toolbar {
     grid-template-columns: 1fr;
   }
 
-  .asset-filter-controls {
+  .filter-toolbar-controls {
     justify-content: flex-start;
     flex-wrap: wrap;
   }
 
-  .asset-filter-control {
+  .filter-select {
     flex: 1 1 160px;
   }
 
-  .asset-filter-control select {
+  .filter-select-menu {
+    inset-inline: 0 auto;
     inline-size: 100%;
-    max-inline-size: none;
   }
 }
 
@@ -2703,14 +2810,14 @@ code {
     flex: 1 1 auto;
   }
 
-  .asset-filter-bar {
+  .filter-toolbar {
     padding: var(--space-2);
   }
 
-  .asset-search-control,
-  .asset-filter-controls,
-  .asset-filter-control,
-  .asset-filter-reset {
+  .filter-search-control,
+  .filter-toolbar-controls,
+  .filter-select,
+  .filter-toolbar-reset {
     inline-size: 100%;
   }
 
