@@ -466,11 +466,12 @@ export function App(): JSX.Element {
   const [authChecked, setAuthChecked] = useState(false);
   const [authMe, setAuthMe] = useState<AuthMe | null>(null);
   const [loginForm, setLoginForm] = useState({ username: "admin", password: "" });
+  const [loginNotice, setLoginNotice] = useState("");
   const [selectedAsset, setSelectedAsset] = useState<Asset | null>(null);
   const [accessProfile, setAccessProfile] = useState<ServerAccessProfile>(emptyAccessProfile);
   const [btPanelProfile, setBtPanelProfile] = useState<BtPanelProfile>(emptyBtPanelProfile);
   const t = copy[locale];
-  const [notice, setNotice] = useState<string>(copy.zh.connecting);
+  const [notice, setNotice] = useState<string>("");
   const [busyAction, setBusyAction] = useState<string>("");
   const [accountModalOpen, setAccountModalOpen] = useState(false);
   const [checkModalOpen, setCheckModalOpen] = useState(false);
@@ -764,6 +765,7 @@ export function App(): JSX.Element {
   async function initializeSession(): Promise<void> {
     if (!getAuthToken()) {
       setNotice("");
+      setLoginNotice("");
       setAuthChecked(true);
       return;
     }
@@ -776,7 +778,10 @@ export function App(): JSX.Element {
       if (error instanceof ApiAuthError) {
         handleAuthFailure(error);
       } else {
-        setNotice(presentNotice(error instanceof Error ? error.message : "Unable to connect to local API", locale));
+        clearAuthToken();
+        setAuthMe(null);
+        setNotice("");
+        setLoginNotice("");
         setAuthChecked(true);
       }
     }
@@ -804,6 +809,7 @@ export function App(): JSX.Element {
   async function handleLogin(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
     setBusyAction("login");
+    setLoginNotice("");
     setNotice(locale === "zh" ? "正在登录..." : "Signing in...");
     try {
       const session = await apiPost<AuthSession>("/auth/login", {
@@ -817,6 +823,7 @@ export function App(): JSX.Element {
         default_password: session.default_password
       });
       setLoginForm((current) => ({ ...current, password: "" }));
+      setLoginNotice("");
       setNotice(session.default_password && locale === "zh" ? "已登录。请尽快修改默认管理员密码。" : locale === "zh" ? "已登录。" : "Signed in.");
       await refreshAll({ quiet: true, throwOnError: true });
     } catch (error) {
@@ -825,7 +832,8 @@ export function App(): JSX.Element {
         setAuthMe(null);
         setAuthChecked(true);
       }
-      setNotice(presentNotice(error instanceof Error ? error.message : "Login failed", locale));
+      setNotice("");
+      setLoginNotice(presentLoginNotice(error instanceof Error ? error.message : "Login failed", locale));
     } finally {
       setBusyAction("");
       setAuthChecked(true);
@@ -2008,7 +2016,7 @@ export function App(): JSX.Element {
     return (
       <LoginPage
         locale={locale}
-        notice={showNotice ? notice : ""}
+        notice={loginNotice}
         busy={busyAction === "login"}
         form={loginForm}
         onFormChange={setLoginForm}
@@ -3201,6 +3209,24 @@ export function App(): JSX.Element {
       </main>
     </div>
   );
+}
+
+function presentLoginNotice(message: string, locale: Locale): string {
+  const normalized = message.toLowerCase();
+  if (
+    normalized.includes("failed to fetch") ||
+    normalized.includes("networkerror") ||
+    normalized.includes("load failed") ||
+    normalized.includes("unable to connect")
+  ) {
+    return locale === "zh"
+      ? "无法连接本地 API，请确认后端已启动后再登录。"
+      : "Cannot connect to the local API. Start the backend and try again.";
+  }
+  if (normalized.includes("invalid") || normalized.includes("unauthorized")) {
+    return locale === "zh" ? "用户名或密码不正确。" : "Invalid username or password.";
+  }
+  return presentNotice(message, locale);
 }
 
 function presentNotice(message: string, locale: Locale): string {
