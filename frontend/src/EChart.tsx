@@ -1,11 +1,11 @@
-import { BarChart, GaugeChart, GraphChart, PieChart } from "echarts/charts";
+import { BarChart, GaugeChart, GraphChart, PieChart, SankeyChart } from "echarts/charts";
 import { GridComponent, LegendComponent, TitleComponent, TooltipComponent } from "echarts/components";
 import * as echarts from "echarts/core";
 import type { EChartsOption } from "echarts";
 import { CanvasRenderer } from "echarts/renderers";
 import { useEffect, useRef } from "react";
 
-echarts.use([BarChart, GaugeChart, GraphChart, PieChart, GridComponent, LegendComponent, TitleComponent, TooltipComponent, CanvasRenderer]);
+echarts.use([BarChart, GaugeChart, GraphChart, PieChart, SankeyChart, GridComponent, LegendComponent, TitleComponent, TooltipComponent, CanvasRenderer]);
 
 export default function EChart({ option }: { option: EChartsOption }): JSX.Element {
   const chartRef = useRef<HTMLDivElement | null>(null);

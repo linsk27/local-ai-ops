@@ -4665,81 +4665,91 @@ function buildRegionDistributionOption(rows: ChartDatum[], locale: Locale): ECha
 }
 
 function buildAssetGraphOption(graph: AssetGraph, locale: Locale): EChartsOption {
-  const categories = Array.from(new Set(graph.nodes.map((node) => node.type))).map((type) => ({
-    name: assetTypeLabel(type, locale)
+  const nodeById = new Map(graph.nodes.map((node) => [node.id, node]));
+  const involvedNodeIds = new Set<string>();
+  graph.edges.forEach((edge) => {
+    involvedNodeIds.add(edge.source);
+    involvedNodeIds.add(edge.target);
+  });
+  const visibleNodes = graph.nodes.filter((node) => involvedNodeIds.has(node.id));
+  const nodeTypeColor = (type: string): string => {
+    if (type === "dns") return "#006f5f";
+    if (type === "domain") return "#3f86a0";
+    if (type === "oss") return "#d99d22";
+    return "#2f936f";
+  };
+  const sankeyNodes = visibleNodes.map((node) => ({
+    name: node.id,
+    assetLabel: node.label,
+    type: node.type,
+    region: node.region,
+    itemStyle: { color: nodeTypeColor(node.type) },
+    label: {
+      formatter: node.label.length > 16 ? `${node.label.slice(0, 16)}...` : node.label
+    }
   }));
-  const categoryIndex = new Map(categories.map((category, index) => [category.name, index]));
+  const sankeyLinks = graph.edges.map((edge) => ({
+    source: edge.source,
+    target: edge.target,
+    value: 1,
+    relation: edge.relation,
+    confidence: edge.confidence
+  }));
   return {
-    color: chartPalette,
     tooltip: {
       ...chartTooltipStyle,
       formatter: (params: unknown) => {
-        const item = params as { dataType?: string; data?: { name?: string; assetLabel?: string; relation?: string; region?: string; type?: string } };
-        if (item.dataType === "edge") {
-          return `${locale === "zh" ? "关系" : "Relation"}<br/><strong>${relationLabel(item.data?.relation || "", locale)}</strong>`;
+        const item = params as {
+          dataType?: string;
+          data?: { source?: string; target?: string; assetLabel?: string; relation?: string; region?: string; type?: string; confidence?: string };
+        };
+        if (item.dataType === "edge" || (item.data?.source && item.data?.target)) {
+          const source = item.data?.source ? nodeById.get(item.data.source) : null;
+          const target = item.data?.target ? nodeById.get(item.data.target) : null;
+          return [
+            `<strong>${relationLabel(item.data?.relation || "", locale)}</strong>`,
+            `${source?.label || item.data?.source || "-"} → ${target?.label || item.data?.target || "-"}`,
+            item.data?.confidence === "stored" ? (locale === "zh" ? "来源：保存关系" : "Source: stored") : (locale === "zh" ? "来源：自动推断" : "Source: inferred")
+          ].join("<br/>");
         }
-        return `${item.data?.name || item.data?.assetLabel || ""}<br/>${assetTypeLabel(item.data?.type || "", locale)} / ${item.data?.region || "-"}`;
+        return `${item.data?.assetLabel || ""}<br/>${assetTypeLabel(item.data?.type || "", locale)} / ${item.data?.region || "-"}`;
       }
     },
     legend: {
-      right: 12,
-      top: 12,
+      right: 18,
+      top: 14,
       textStyle: { color: chartMuted, fontSize: 12 },
-      data: categories.map((category) => category.name)
+      data: ["DNS", locale === "zh" ? "域名" : "Domain", "OSS", locale === "zh" ? "轻量服务器" : "Server"]
     },
     series: [
       {
-        type: "graph",
-        layout: "circular",
-        roam: true,
-        zoom: 0.72,
-        left: 36,
-        right: 36,
-        top: 62,
-        bottom: 32,
-        draggable: true,
-        circular: {
-          rotateLabel: false
-        },
+        type: "sankey",
+        left: 28,
+        right: 132,
+        top: 60,
+        bottom: 28,
+        nodeWidth: 14,
+        nodeGap: 9,
+        nodeAlign: "justify",
+        draggable: false,
+        layoutIterations: 0,
         emphasis: {
-          focus: "adjacency",
-          label: {
-            show: true
-          }
+          focus: "adjacency"
         },
-        categories,
         label: {
-          show: false,
+          show: true,
           color: chartInk,
-          fontSize: 11,
+          fontSize: 10,
           overflow: "truncate",
-          width: 110
+          width: 96
         },
         lineStyle: {
-          color: "source",
-          opacity: 0.42,
-          curveness: 0.12,
-          width: 1.4
+          color: "gradient",
+          opacity: 0.26,
+          curveness: 0.52
         },
-        edgeSymbol: ["none", "arrow"],
-        edgeSymbolSize: 8,
-        data: graph.nodes.map((node) => {
-          const categoryName = assetTypeLabel(node.type, locale);
-          return {
-            id: node.id,
-            name: node.label,
-            assetLabel: node.label,
-            type: node.type,
-            region: node.region,
-            category: categoryIndex.get(categoryName) ?? 0,
-            symbolSize: node.type === "domain" ? 42 : node.type === "dns" ? 34 : 38
-          };
-        }),
-        links: graph.edges.map((edge) => ({
-          source: edge.source,
-          target: edge.target,
-          relation: edge.relation
-        }))
+        data: sankeyNodes,
+        links: sankeyLinks
       }
     ]
   };
