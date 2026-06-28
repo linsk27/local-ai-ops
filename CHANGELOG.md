@@ -1,5 +1,13 @@
 # Changelog
 
+## v0.2.1 - 2026-06-28
+
+- Documented why public README screenshots must be sanitized before publishing.
+- Removed real-environment screenshots from the release path to avoid exposing asset names, public IPs, regions, and renewal data.
+- Verified the repository ignores local secrets, databases, generated outputs, and build artifacts.
+- Confirmed backend tests and frontend builds pass locally and in GitHub Actions.
+- Published a follow-up release tag without rewriting the existing v0.2.0 tag.
+
 ## v0.2.0 - 2026-06-23
 
 - Added single-admin local login with Bearer token protection for API routes.

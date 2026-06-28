@@ -37,6 +37,12 @@ flowchart LR
   API --> AI["OpenAI-compatible API"]
 ```
 
+## Screenshots
+
+本项目会展示真实云资源名称、公网 IP、地域、到期时间和本地运维备注。为了避免开源仓库泄露资产信息，README 不提交真实运行截图。
+
+如果需要展示界面，请使用脱敏演示环境截图：替换资源名称、公网 IP、域名、Bucket、账号、到期时间和任何业务备注后再提交。
+
 ## Quick Start
 
 ### 1. Clone
