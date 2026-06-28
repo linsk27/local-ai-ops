@@ -2075,29 +2075,31 @@ export function App(): JSX.Element {
                 <span>{notice}</span>
               </div>
             )}
-            {authMe.default_password && (
-              <span className="security-warning" title={locale === "zh" ? "请在 .env 中修改 ADMIN_PASSWORD 后重启服务。" : "Change ADMIN_PASSWORD in .env and restart the service."}>
-                {locale === "zh" ? "默认密码" : "Default password"}
-              </span>
-            )}
-            <button type="button" className="secondary-button compact-button topbar-user" onClick={() => void handleLogout()} title={locale === "zh" ? "退出本地管理员登录" : "Sign out"}>
-              <LogOut aria-hidden="true" />
-              <span>{authMe.username}</span>
-            </button>
-            <div className="segmented locale-switch" role="group" aria-label="Language">
-              <button type="button" className={locale === "zh" ? "is-selected" : ""} onClick={() => setLocale("zh")}>中文</button>
-              <button type="button" className={locale === "en" ? "is-selected" : ""} onClick={() => setLocale("en")}>EN</button>
+            <div className="topbar-tools" aria-label={locale === "zh" ? "顶部工具" : "Top tools"}>
+              {authMe.default_password && (
+                <span className="security-warning" title={locale === "zh" ? "请在 .env 中修改 ADMIN_PASSWORD 后重启服务。" : "Change ADMIN_PASSWORD in .env and restart the service."}>
+                  {locale === "zh" ? "默认密码" : "Default password"}
+                </span>
+              )}
+              <button type="button" className="secondary-button compact-button topbar-user" onClick={() => void handleLogout()} title={locale === "zh" ? "退出本地管理员登录" : "Sign out"}>
+                <LogOut aria-hidden="true" />
+                <span>{authMe.username}</span>
+              </button>
+              <div className="segmented locale-switch" role="group" aria-label="Language">
+                <button type="button" className={locale === "zh" ? "is-selected" : ""} onClick={() => setLocale("zh")}>中文</button>
+                <button type="button" className={locale === "en" ? "is-selected" : ""} onClick={() => setLocale("en")}>EN</button>
+              </div>
+              <button
+                type="button"
+                className="icon-button"
+                onClick={() => void handleManualRefresh()}
+                aria-label={refreshLabel}
+                title={refreshLabel}
+                disabled={busyAction === "refresh"}
+              >
+                <RefreshCcw aria-hidden="true" />
+              </button>
             </div>
-            <button
-              type="button"
-              className="icon-button"
-              onClick={() => void handleManualRefresh()}
-              aria-label={refreshLabel}
-              title={refreshLabel}
-              disabled={busyAction === "refresh"}
-            >
-              <RefreshCcw aria-hidden="true" />
-            </button>
           </div>
         </header>
 
