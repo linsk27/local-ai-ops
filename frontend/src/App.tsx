@@ -4794,14 +4794,14 @@ function assetConsoleUrl(asset: Asset): string {
   if (btPanelUrl) {
     return btPanelUrl;
   }
-  const detailUrl = assetCloudDetailUrl(asset);
-  if (detailUrl) {
-    return detailUrl;
-  }
   const ops = metadataSection(asset.metadata_json, "ops");
   const configured = normalizeExternalUrl(textValue(ops.login_url));
   if (configured) {
     return configured;
+  }
+  const detailUrl = assetCloudDetailUrl(asset);
+  if (detailUrl) {
+    return detailUrl;
   }
   if (asset.type === "swas") {
     return "https://swas.console.aliyun.com/";
@@ -4828,10 +4828,10 @@ function assetCloudDetailUrl(asset: Asset): string {
     return "";
   }
   if (asset.type === "ecs") {
-    return `https://ecs.console.aliyun.com/server/${region}/${id}/detail`;
+    return `https://ecs.console.aliyun.com/server/${id}/detail?regionId=${region}`;
   }
   if (asset.type === "swas") {
-    return `https://swas.console.aliyun.com/servers/${region}/${id}/dashboard`;
+    return `https://swas.console.aliyun.com/#/servers/${region}/${id}/dashboard`;
   }
   return "";
 }
