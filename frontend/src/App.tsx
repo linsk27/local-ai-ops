@@ -481,6 +481,7 @@ export function App(): JSX.Element {
   const [aiConfigModalOpen, setAiConfigModalOpen] = useState(false);
   const [confirmDialog, setConfirmDialog] = useState<ConfirmDialogOptions | null>(null);
   const confirmResolver = useRef<((confirmed: boolean) => void) | null>(null);
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [accountForm, setAccountForm] = useState({
     name: "",
     access_key_id: "",
@@ -685,6 +686,15 @@ export function App(): JSX.Element {
     const timeout = window.setTimeout(() => setNotice(""), noticeDismissDelay(notice));
     return () => window.clearTimeout(timeout);
   }, [busyAction, notice, showNotice]);
+
+  useEffect(() => {
+    if (!userMenuOpen) {
+      return;
+    }
+    const closeMenu = () => setUserMenuOpen(false);
+    window.addEventListener("click", closeMenu);
+    return () => window.removeEventListener("click", closeMenu);
+  }, [userMenuOpen]);
 
   function handleAuthFailure(error?: unknown): void {
     clearAuthToken();
@@ -2089,6 +2099,39 @@ export function App(): JSX.Element {
                 <LogOut aria-hidden="true" />
                 <span>{authMe.username}</span>
               </button>
+              <div className="topbar-user-menu" onClick={(event) => event.stopPropagation()}>
+                <button
+                  type="button"
+                  className="topbar-user-trigger"
+                  onClick={() => setUserMenuOpen((open) => !open)}
+                  aria-haspopup="menu"
+                  aria-expanded={userMenuOpen}
+                  title={locale === "zh" ? "管理员菜单" : "Admin menu"}
+                >
+                  <span className={authMe.default_password ? "user-avatar has-warning" : "user-avatar"}>
+                    {authMe.username.slice(0, 1).toUpperCase()}
+                  </span>
+                  <span>{authMe.username}</span>
+                </button>
+                {userMenuOpen && (
+                  <div className="topbar-menu" role="menu">
+                    <div className="topbar-menu-header">
+                      <strong>{authMe.username}</strong>
+                      <span>{locale === "zh" ? "本地管理员" : "Local admin"}</span>
+                    </div>
+                    {authMe.default_password && (
+                      <div className="topbar-menu-warning">
+                        <ShieldCheck aria-hidden="true" />
+                        <span>{locale === "zh" ? "当前仍使用默认密码，请在 .env 修改 ADMIN_PASSWORD。" : "Default password is still active. Change ADMIN_PASSWORD in .env."}</span>
+                      </div>
+                    )}
+                    <button type="button" role="menuitem" onClick={() => void handleLogout()}>
+                      <LogOut aria-hidden="true" />
+                      {locale === "zh" ? "退出登录" : "Sign out"}
+                    </button>
+                  </div>
+                )}
+              </div>
               <div className="segmented locale-switch" role="group" aria-label="Language">
                 <button type="button" className={locale === "zh" ? "is-selected" : ""} onClick={() => setLocale("zh")}>中文</button>
                 <button type="button" className={locale === "en" ? "is-selected" : ""} onClick={() => setLocale("en")}>EN</button>
