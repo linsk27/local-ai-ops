@@ -2077,8 +2077,12 @@ export function App(): JSX.Element {
             )}
             <div className="topbar-tools" aria-label={locale === "zh" ? "顶部工具" : "Top tools"}>
               {authMe.default_password && (
-                <span className="security-warning" title={locale === "zh" ? "请在 .env 中修改 ADMIN_PASSWORD 后重启服务。" : "Change ADMIN_PASSWORD in .env and restart the service."}>
-                  {locale === "zh" ? "默认密码" : "Default password"}
+                <span
+                  className="security-warning"
+                  aria-label={locale === "zh" ? "正在使用默认管理员密码" : "Using default admin password"}
+                  title={locale === "zh" ? "正在使用默认管理员密码。请在 .env 中修改 ADMIN_PASSWORD 后重启服务。" : "Using the default admin password. Change ADMIN_PASSWORD in .env and restart the service."}
+                >
+                  <ShieldCheck aria-hidden="true" />
                 </span>
               )}
               <button type="button" className="secondary-button compact-button topbar-user" onClick={() => void handleLogout()} title={locale === "zh" ? "退出本地管理员登录" : "Sign out"}>
