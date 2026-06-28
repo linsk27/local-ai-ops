@@ -4794,6 +4794,10 @@ function assetConsoleUrl(asset: Asset): string {
   if (btPanelUrl) {
     return btPanelUrl;
   }
+  const detailUrl = assetCloudDetailUrl(asset);
+  if (detailUrl) {
+    return detailUrl;
+  }
   const ops = metadataSection(asset.metadata_json, "ops");
   const configured = normalizeExternalUrl(textValue(ops.login_url));
   if (configured) {
@@ -4813,6 +4817,21 @@ function assetConsoleUrl(asset: Asset): string {
   }
   if (asset.type === "dns") {
     return "https://dns.console.aliyun.com/";
+  }
+  return "";
+}
+
+function assetCloudDetailUrl(asset: Asset): string {
+  const id = encodeURIComponent(asset.external_id || "");
+  const region = encodeURIComponent(asset.region || "");
+  if (!id || !region || region === "global") {
+    return "";
+  }
+  if (asset.type === "ecs") {
+    return `https://ecs.console.aliyun.com/server/${region}/${id}/detail`;
+  }
+  if (asset.type === "swas") {
+    return `https://swas.console.aliyun.com/servers/${region}/${id}/dashboard`;
   }
   return "";
 }
