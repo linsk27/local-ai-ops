@@ -1435,7 +1435,7 @@ export function App(): JSX.Element {
     const url = assetConsoleUrl(asset);
     return url ? (
       <a className="text-link" href={url} target="_blank" rel="noreferrer">
-        {t.actions.openConsole}
+        {assetConsoleLabel(asset, locale)}
         <ExternalLink aria-hidden="true" />
       </a>
     ) : (
@@ -2377,7 +2377,7 @@ export function App(): JSX.Element {
                         </button>
                         {assetConsoleUrl(asset) && (
                           <a className="text-link" href={assetConsoleUrl(asset)} target="_blank" rel="noreferrer">
-                            {t.actions.openConsole}
+                            {assetConsoleLabel(asset, locale)}
                           </a>
                         )}
                       </td>
@@ -4760,9 +4760,42 @@ function renewalStatusLabel(status: RenewalStatus, locale: Locale): string {
   return locale === "zh" ? "未返回" : "Unknown";
 }
 
+function assetConsoleLabel(asset: Asset, locale: Locale): string {
+  if (assetBtPanelUrl(asset)) {
+    return locale === "zh" ? "打开面板" : "Open Panel";
+  }
+  return locale === "zh" ? "控制台" : "Console";
+}
+
+function assetBtPanelUrl(asset: Asset): string {
+  if (!["ecs", "swas"].includes(asset.type)) {
+    return "";
+  }
+  const btPanel = metadataSection(asset.metadata_json, "bt_panel");
+  if (btPanel.enabled === false) {
+    return "";
+  }
+  return normalizeExternalUrl(textValue(btPanel.url));
+}
+
+function normalizeExternalUrl(value: string): string {
+  const url = value.trim();
+  if (!url) {
+    return "";
+  }
+  if (/^https?:\/\//i.test(url)) {
+    return url;
+  }
+  return `http://${url}`;
+}
+
 function assetConsoleUrl(asset: Asset): string {
+  const btPanelUrl = assetBtPanelUrl(asset);
+  if (btPanelUrl) {
+    return btPanelUrl;
+  }
   const ops = metadataSection(asset.metadata_json, "ops");
-  const configured = textValue(ops.login_url);
+  const configured = normalizeExternalUrl(textValue(ops.login_url));
   if (configured) {
     return configured;
   }
