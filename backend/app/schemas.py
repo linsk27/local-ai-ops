@@ -277,6 +277,79 @@ class DashboardSummary(BaseModel):
     risk_items: list[dict[str, Any]]
 
 
+class KnowledgeSummary(BaseModel):
+    assets_total: int
+    server_total: int
+    open_alerts: int
+    checks_total: int
+    expiring_soon: int
+    credential_configured: int
+    top_regions: list[dict[str, Any]] = Field(default_factory=list)
+    top_risks: list[dict[str, Any]] = Field(default_factory=list)
+    suggested_questions: list[str] = Field(default_factory=list)
+
+
+class KnowledgeQuery(BaseModel):
+    question: str = Field(min_length=1, max_length=400)
+    locale: Literal["zh", "en"] = "zh"
+
+    @field_validator("question", mode="before")
+    @classmethod
+    def strip_question(cls, value: str) -> str:
+        return value.strip() if isinstance(value, str) else value
+
+
+class KnowledgeAnswer(BaseModel):
+    question: str
+    intent: str
+    answer: str
+    evidence: list[dict[str, Any]] = Field(default_factory=list)
+    actions: list[str] = Field(default_factory=list)
+
+
+class AssetGraphNode(BaseModel):
+    id: str
+    asset_id: int
+    label: str
+    type: str
+    region: str
+    status: str
+
+
+class AssetGraphEdge(BaseModel):
+    source: str
+    target: str
+    relation: str
+    confidence: str = "inferred"
+
+
+class AssetGraphResponse(BaseModel):
+    nodes: list[AssetGraphNode]
+    edges: list[AssetGraphEdge]
+
+
+class RenewalItem(BaseModel):
+    asset_id: int
+    name: str
+    type: str
+    region: str
+    expires_at: str | None
+    days_left: int | None
+    auto_renew: bool | None
+    status: str
+    source: str
+    console_url: str | None = None
+
+
+class RenewalCenterResponse(BaseModel):
+    total: int
+    expiring_soon: int
+    expired: int
+    auto_renew_enabled: int
+    unknown: int
+    items: list[RenewalItem]
+
+
 class AiConfigRead(BaseModel):
     base_url: str
     model: str

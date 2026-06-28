@@ -8,7 +8,7 @@ from app.api.deps import DbSession
 from app.core.auth import create_access_token, is_default_admin_password, user_from_request, verify_admin_password
 from app.core.config import get_settings
 from app.core.security import decrypt_secret, encrypt_secret, mask_value, redact_text
-from app.models import Alert, AlertRule, Asset, AuditLog, Check, CheckResult, CloudAccount, EncryptedSecret, ServerAccessProfile
+from app.models import Alert, AlertRule, Asset, AssetRelation, AuditLog, Check, CheckResult, CloudAccount, EncryptedSecret, ServerAccessProfile
 from app.schemas import (
     AccountTestResult,
     AiConfigRead,
@@ -16,6 +16,7 @@ from app.schemas import (
     AiConfigUpdate,
     AlertRead,
     AlertUpdate,
+    AssetGraphResponse,
     AssetOpsUpdate,
     AssetRead,
     AuthLoginRequest,
@@ -33,6 +34,10 @@ from app.schemas import (
     DashboardSummary,
     DiagnosisRead,
     DiagnosisRequest,
+    KnowledgeAnswer,
+    KnowledgeQuery,
+    KnowledgeSummary,
+    RenewalCenterResponse,
     ServerAccessProfileRead,
     ServerAccessSecretReveal,
     ServerAccessProfileUpdate,
@@ -163,6 +168,371 @@ def dashboard(db: DbSession) -> DashboardSummary:
         risk_summary=sorted(risk_summary.values(), key=lambda item: (_severity_rank(str(item.get("severity"))), str(item.get("kind")))),
         risk_items=risks[:8],
     )
+
+
+@router.get("/knowledge/summary", response_model=KnowledgeSummary)
+def knowledge_summary(db: DbSession) -> KnowledgeSummary:
+    assets = list(db.scalars(select(Asset)).all())
+    checks_total = db.scalar(select(func.count()).select_from(Check)) or 0
+    open_alerts = db.scalar(select(func.count()).select_from(Alert).where(Alert.status.in_(["open", "acknowledged"]))) or 0
+    access_profiles = {
+        profile.asset_id: profile
+        for profile in db.scalars(select(ServerAccessProfile)).all()
+    }
+    dashboard_payload = dashboard(db)
+    regions: dict[str, int] = {}
+    expiring_soon = 0
+    credential_configured = 0
+    for asset in assets:
+        regions[asset.region or "global"] = regions.get(asset.region or "global", 0) + 1
+        renewal = _renewal_item_for_asset(asset)
+        if renewal["days_left"] is not None and renewal["days_left"] <= 30:
+            expiring_soon += 1
+        profile = access_profiles.get(asset.id)
+        if profile and profile.enabled and profile.secret_id:
+            credential_configured += 1
+    top_regions = [
+        {"region": region, "count": count}
+        for region, count in sorted(regions.items(), key=lambda item: (-item[1], item[0]))[:6]
+    ]
+    return KnowledgeSummary(
+        assets_total=len(assets),
+        server_total=sum(1 for asset in assets if asset.type in {"ecs", "swas", "server"}),
+        open_alerts=open_alerts,
+        checks_total=checks_total,
+        expiring_soon=expiring_soon,
+        credential_configured=credential_configured,
+        top_regions=top_regions,
+        top_risks=dashboard_payload.risk_items[:5],
+        suggested_questions=[
+            "哪些服务器快到期了？",
+            "哪些资产缺少 SSH 凭据？",
+            "当前有哪些告警或失败监控？",
+            "哪些服务器内存或磁盘压力较高？",
+        ],
+    )
+
+
+@router.post("/knowledge/query", response_model=KnowledgeAnswer)
+def query_knowledge(payload: KnowledgeQuery, db: DbSession) -> KnowledgeAnswer:
+    question = payload.question
+    normalized = question.lower()
+    assets = list(db.scalars(select(Asset)).all())
+    metrics = _runtime_metrics_for_assets(db, [asset.id for asset in assets])
+    quality = _data_quality_for_assets(db, assets, metrics)
+    alerts = list(db.scalars(select(Alert).where(Alert.status.in_(["open", "acknowledged"])).order_by(desc(Alert.updated_at)).limit(10)).all())
+
+    if any(token in normalized for token in ["续费", "到期", "expire", "renew"]):
+        items = [_renewal_item_for_asset(asset) for asset in assets]
+        items.sort(key=lambda item: 999999 if item["days_left"] is None else item["days_left"])
+        evidence = items[:8]
+        return KnowledgeAnswer(
+            question=question,
+            intent="renewal",
+            answer=_knowledge_answer_text("renewal", evidence, payload.locale),
+            evidence=evidence,
+            actions=["打开续费中心", "检查自动续费状态", "对 30 天内到期资产确认负责人"],
+        )
+
+    if any(token in normalized for token in ["ssh", "密码", "凭据", "宝塔", "bt", "panel"]):
+        evidence = []
+        for asset in assets:
+            if asset.type not in {"ecs", "swas", "server"}:
+                continue
+            asset_quality = quality.get(asset.id, {})
+            sources = asset_quality.get("field_sources", {})
+            evidence.append(
+                {
+                    "asset_id": asset.id,
+                    "name": asset.name,
+                    "region": asset.region,
+                    "ssh": sources.get("ssh", "missing"),
+                    "bt_panel": sources.get("bt_panel", "missing"),
+                }
+            )
+        return KnowledgeAnswer(
+            question=question,
+            intent="access",
+            answer=_knowledge_answer_text("access", evidence, payload.locale),
+            evidence=evidence[:12],
+            actions=["进入资产详情配置 SSH", "复制密码前确认本机环境安全", "优先使用云助手执行只读采集"],
+        )
+
+    if any(token in normalized for token in ["磁盘", "内存", "使用率", "disk", "memory", "usage"]):
+        evidence = []
+        for asset in assets:
+            asset_metrics = metrics.get(asset.id, {})
+            disk_used = _number_or_none(asset_metrics.get("disk_used_percent"))
+            memory_used = _number_or_none(asset_metrics.get("memory_used_percent"))
+            if disk_used is not None or memory_used is not None:
+                evidence.append(
+                    {
+                        "asset_id": asset.id,
+                        "name": asset.name,
+                        "region": asset.region,
+                        "disk_used_percent": disk_used,
+                        "memory_used_percent": memory_used,
+                    }
+                )
+        evidence.sort(key=lambda item: max(item.get("disk_used_percent") or 0, item.get("memory_used_percent") or 0), reverse=True)
+        return KnowledgeAnswer(
+            question=question,
+            intent="runtime_usage",
+            answer=_knowledge_answer_text("runtime_usage", evidence, payload.locale),
+            evidence=evidence[:10],
+            actions=["对高于 85% 的磁盘或内存资产执行排查", "确认最近采集时间", "必要时进入监控页手动执行"],
+        )
+
+    if any(token in normalized for token in ["告警", "异常", "失败", "alert", "fail"]):
+        evidence = [
+            {
+                "alert_id": alert.id,
+                "asset_id": alert.asset_id,
+                "title": redact_text(alert.title),
+                "status": alert.status,
+                "severity": alert.severity,
+                "failure_count": alert.failure_count,
+            }
+            for alert in alerts
+        ]
+        return KnowledgeAnswer(
+            question=question,
+            intent="alerts",
+            answer=_knowledge_answer_text("alerts", evidence, payload.locale),
+            evidence=evidence,
+            actions=["进入告警列表查看详情", "对未关闭告警生成 AI 诊断", "恢复后关闭告警"],
+        )
+
+    summary = knowledge_summary(db)
+    return KnowledgeAnswer(
+        question=question,
+        intent="overview",
+        answer=_knowledge_answer_text("overview", [summary.model_dump()], payload.locale),
+        evidence=[summary.model_dump()],
+        actions=["查看总览态势", "同步资产后再提问", "为关键服务器生成默认监控"],
+    )
+
+
+@router.get("/asset-graph", response_model=AssetGraphResponse)
+def asset_graph(db: DbSession) -> AssetGraphResponse:
+    assets = list(db.scalars(select(Asset).order_by(Asset.type, Asset.name)).all())
+    asset_by_id = {asset.id: asset for asset in assets}
+    nodes = [
+        {
+            "id": f"asset-{asset.id}",
+            "asset_id": asset.id,
+            "label": asset.name,
+            "type": asset.type,
+            "region": asset.region,
+            "status": asset.status,
+        }
+        for asset in assets
+    ]
+    edges: list[dict] = []
+    seen_edges: set[tuple[str, str, str]] = set()
+
+    def add_edge(source_id: int, target_id: int, relation: str, confidence: str = "inferred") -> None:
+        if source_id == target_id or source_id not in asset_by_id or target_id not in asset_by_id:
+            return
+        key = (f"asset-{source_id}", f"asset-{target_id}", relation)
+        if key in seen_edges:
+            return
+        seen_edges.add(key)
+        edges.append({"source": key[0], "target": key[1], "relation": relation, "confidence": confidence})
+
+    for relation in db.scalars(select(AssetRelation)).all():
+        add_edge(relation.source_asset_id, relation.target_asset_id, relation.relation_type, "stored")
+
+    server_ip_map: dict[str, int] = {}
+    domain_assets: list[Asset] = []
+    dns_assets: list[Asset] = []
+    for asset in assets:
+        if asset.type in {"ecs", "swas", "server"}:
+            for ip in _asset_ips(asset):
+                server_ip_map[ip] = asset.id
+        if asset.type == "domain":
+            domain_assets.append(asset)
+        if asset.type == "dns":
+            dns_assets.append(asset)
+
+    for dns in dns_assets:
+        values = _metadata_strings(dns.metadata_json or {})
+        for value in values:
+            if value in server_ip_map:
+                add_edge(dns.id, server_ip_map[value], "resolves_to")
+        for domain in domain_assets:
+            if domain.name and any(domain.name in value for value in values + [dns.name]):
+                add_edge(domain.id, dns.id, "has_dns_record")
+
+    return AssetGraphResponse(nodes=nodes, edges=edges)
+
+
+@router.get("/renewals", response_model=RenewalCenterResponse)
+def renewal_center(db: DbSession) -> RenewalCenterResponse:
+    items = [_renewal_item_for_asset(asset) for asset in db.scalars(select(Asset)).all()]
+    items.sort(key=lambda item: 999999 if item["days_left"] is None else item["days_left"])
+    return RenewalCenterResponse(
+        total=len(items),
+        expiring_soon=sum(1 for item in items if item["days_left"] is not None and 0 <= item["days_left"] <= 30),
+        expired=sum(1 for item in items if item["days_left"] is not None and item["days_left"] < 0),
+        auto_renew_enabled=sum(1 for item in items if item["auto_renew"] is True),
+        unknown=sum(1 for item in items if item["expires_at"] is None),
+        items=items,
+    )
+
+
+def _knowledge_answer_text(intent: str, evidence: list[dict], locale: str) -> str:
+    if locale == "en":
+        if intent == "renewal":
+            urgent = sum(1 for item in evidence if item.get("days_left") is not None and item["days_left"] <= 30)
+            return f"Found {len(evidence)} renewal records in the local database. {urgent} shown items are due within 30 days."
+        if intent == "access":
+            configured = sum(1 for item in evidence if item.get("ssh") == "encrypted_local_secret")
+            return f"Found {len(evidence)} server access records. {configured} have encrypted SSH credentials configured locally."
+        if intent == "runtime_usage":
+            return f"Found {len(evidence)} assets with collected memory or disk usage. Review items over 85% first."
+        if intent == "alerts":
+            return f"Found {len(evidence)} open or acknowledged alerts."
+        return "This answer is generated from the local operations database: assets, checks, alerts, runtime metrics, and encrypted-credential status."
+
+    if intent == "renewal":
+        urgent = sum(1 for item in evidence if item.get("days_left") is not None and item["days_left"] <= 30)
+        return f"本地库中找到 {len(evidence)} 条续费记录，其中当前展示项里 {urgent} 个在 30 天内到期。"
+    if intent == "access":
+        configured = sum(1 for item in evidence if item.get("ssh") == "encrypted_local_secret")
+        return f"本地库中找到 {len(evidence)} 台服务器访问资料，其中 {configured} 台已配置本地加密 SSH 凭据。"
+    if intent == "runtime_usage":
+        return f"本地库中找到 {len(evidence)} 个已采集内存或磁盘使用率的资产，优先关注超过 85% 的项目。"
+    if intent == "alerts":
+        return f"当前有 {len(evidence)} 条打开或已确认的告警。"
+    return "该回答来自本地运维数据库，覆盖资产、监控、告警、运行时指标和凭据配置状态。"
+
+
+def _renewal_item_for_asset(asset: Asset) -> dict:
+    metadata = dict(asset.metadata_json or {})
+    ops = metadata.get("ops") if isinstance(metadata.get("ops"), dict) else {}
+    source = _renewal_source(metadata, ops if isinstance(ops, dict) else {})
+    expires_at = _first_text(
+        ops.get("renewal_expires_at") if isinstance(ops, dict) else None,
+        metadata.get("expires_at"),
+        metadata.get("expired_time"),
+        metadata.get("expiration_date"),
+        metadata.get("billing_end_time"),
+    )
+    days_left = _days_until(expires_at)
+    auto_renew = _auto_renew_value(metadata, ops if isinstance(ops, dict) else {})
+    if days_left is None:
+        status = "unknown"
+    elif days_left < 0:
+        status = "expired"
+    elif days_left <= 7:
+        status = "urgent"
+    elif days_left <= 30:
+        status = "soon"
+    else:
+        status = "ok"
+    return {
+        "asset_id": asset.id,
+        "name": asset.name,
+        "type": asset.type,
+        "region": asset.region,
+        "expires_at": expires_at,
+        "days_left": days_left,
+        "auto_renew": auto_renew,
+        "status": status,
+        "source": source,
+        "console_url": _console_url_for_asset(asset),
+    }
+
+
+def _first_text(*values: object) -> str | None:
+    for value in values:
+        if value in (None, "", [], {}):
+            continue
+        text = str(value).strip()
+        if text:
+            return text
+    return None
+
+
+def _days_until(value: str | None) -> int | None:
+    if not value:
+        return None
+    text = value.strip()
+    for part in (text[:10], text.replace("/", "-")[:10]):
+        try:
+            expires = datetime.fromisoformat(part).date()
+            return (expires - datetime.now(timezone.utc).date()).days
+        except ValueError:
+            continue
+    return None
+
+
+def _auto_renew_value(metadata: dict, ops: dict) -> bool | None:
+    if "renewal_auto_renew" in ops and ops["renewal_auto_renew"] is not None:
+        return bool(ops["renewal_auto_renew"])
+    for key in ("auto_renew_enabled", "auto_renew", "autoRenew"):
+        value = metadata.get(key)
+        if isinstance(value, bool):
+            return value
+        if isinstance(value, str):
+            normalized = value.strip().lower()
+            if normalized in {"true", "enabled", "enable", "on", "yes", "1"}:
+                return True
+            if normalized in {"false", "disabled", "disable", "off", "no", "0"}:
+                return False
+    renew_status = str(metadata.get("renew_status") or metadata.get("renewStatus") or "").lower()
+    if renew_status:
+        if "auto" in renew_status or "renewal" in renew_status:
+            return True
+        if "manual" in renew_status or "normal" in renew_status:
+            return False
+    return None
+
+
+def _console_url_for_asset(asset: Asset) -> str | None:
+    if asset.type == "swas":
+        return f"https://swas.console.aliyun.com/servers/{asset.region}/{asset.external_id}"
+    if asset.type == "ecs":
+        return f"https://ecs.console.aliyun.com/server/{asset.region}/{asset.external_id}/detail"
+    if asset.type == "oss":
+        return "https://oss.console.aliyun.com/bucket"
+    if asset.type == "domain":
+        return "https://dc.console.aliyun.com/next/index"
+    if asset.type == "dns":
+        return "https://dns.console.aliyun.com/"
+    return None
+
+
+def _asset_ips(asset: Asset) -> list[str]:
+    metadata = dict(asset.metadata_json or {})
+    ips: list[str] = []
+    for key in ("public_ip", "public_ip_address", "private_ip", "private_ip_address", "inner_ip_address", "eip"):
+        value = metadata.get(key)
+        if isinstance(value, str) and value.strip():
+            ips.append(value.strip())
+        elif isinstance(value, list):
+            ips.extend(str(item).strip() for item in value if str(item).strip())
+    return sorted(set(ips))
+
+
+def _metadata_strings(metadata: dict) -> list[str]:
+    values: list[str] = []
+
+    def collect(value: object) -> None:
+        if isinstance(value, str):
+            stripped = value.strip()
+            if stripped:
+                values.append(stripped)
+        elif isinstance(value, dict):
+            for nested in value.values():
+                collect(nested)
+        elif isinstance(value, list):
+            for nested in value:
+                collect(nested)
+
+    collect(metadata)
+    return values
 
 
 def _add_risk(

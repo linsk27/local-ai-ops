@@ -154,6 +154,69 @@ export interface DashboardSummary {
   risk_items: Array<{ asset_id: number; asset: string; asset_type?: string; kind: string; value: number | null; severity?: string }>;
 }
 
+export interface KnowledgeSummary {
+  assets_total: number;
+  server_total: number;
+  open_alerts: number;
+  checks_total: number;
+  expiring_soon: number;
+  credential_configured: number;
+  top_regions: Array<{ region: string; count: number }>;
+  top_risks: Array<{ asset_id: number; asset: string; asset_type?: string; kind: string; value: number | null; severity?: string }>;
+  suggested_questions: string[];
+}
+
+export interface KnowledgeAnswer {
+  question: string;
+  intent: string;
+  answer: string;
+  evidence: Array<Record<string, unknown>>;
+  actions: string[];
+}
+
+export interface AssetGraphNode {
+  id: string;
+  asset_id: number;
+  label: string;
+  type: string;
+  region: string;
+  status: string;
+}
+
+export interface AssetGraphEdge {
+  source: string;
+  target: string;
+  relation: string;
+  confidence: string;
+}
+
+export interface AssetGraph {
+  nodes: AssetGraphNode[];
+  edges: AssetGraphEdge[];
+}
+
+export interface RenewalItem {
+  asset_id: number;
+  name: string;
+  type: string;
+  region: string;
+  expires_at: string | null;
+  days_left: number | null;
+  auto_renew: boolean | null;
+  status: string;
+  source: string;
+  console_url: string | null;
+}
+
+export interface RenewalCenter {
+  total: number;
+  expiring_soon: number;
+  expired: number;
+  auto_renew_enabled: number;
+  unknown: number;
+  items: RenewalItem[];
+}
+
 export interface AiConfig {
   base_url: string;
   model: string;

@@ -4,6 +4,7 @@ import {
   ArrowLeft,
   ArrowRight,
   Bot,
+  BookOpen,
   CalendarClock,
   CheckCircle2,
   Cloud,
@@ -11,6 +12,7 @@ import {
   Database,
   ExternalLink,
   Gauge,
+  GitBranch,
   Globe2,
   CircleHelp,
   KeyRound,
@@ -31,9 +33,9 @@ import { FormEvent, lazy, Suspense, useEffect, useMemo, useRef, useState } from 
 import { ApiAuthError, apiDelete, apiGet, apiPatch, apiPost, apiPut, clearAuthToken, getAuthToken, setAuthToken } from "./api";
 import { LoginPage, StartupScreen } from "./components/AuthScreens";
 import { FilterToolbar, type FilterToolbarFilter } from "./components/FilterToolbar";
-import type { AiConfig, AiConfigTestResult, Alert, Asset, AuthMe, AuthSession, BtPanelProfile, Check, CheckResult, CloudAccount, DashboardSummary, Diagnosis, ServerAccessProfile } from "./types";
+import type { AiConfig, AiConfigTestResult, Alert, Asset, AssetGraph, AuthMe, AuthSession, BtPanelProfile, Check, CheckResult, CloudAccount, DashboardSummary, Diagnosis, KnowledgeAnswer, KnowledgeSummary, RenewalCenter, RenewalItem, ServerAccessProfile } from "./types";
 
-type View = "overview" | "accounts" | "assets" | "asset-detail" | "checks" | "alerts" | "diagnosis" | "ai-settings";
+type View = "overview" | "accounts" | "assets" | "asset-detail" | "checks" | "alerts" | "diagnosis" | "knowledge" | "graph" | "renewals" | "ai-settings";
 type NavView = Exclude<View, "asset-detail">;
 type Locale = "zh" | "en";
 type LocalizedDiagnosis = Diagnosis & { locale: Locale };
@@ -63,7 +65,10 @@ const mainViews: Array<{ id: NavView; icon: typeof Gauge }> = [
   { id: "assets", icon: Database },
   { id: "checks", icon: Activity },
   { id: "alerts", icon: AlertTriangle },
-  { id: "diagnosis", icon: Bot }
+  { id: "diagnosis", icon: Bot },
+  { id: "knowledge", icon: BookOpen },
+  { id: "graph", icon: GitBranch },
+  { id: "renewals", icon: CalendarClock }
 ];
 
 const utilityViews: Array<{ id: NavView; icon: typeof Gauge }> = [
@@ -422,6 +427,32 @@ const initialAiConfig: AiConfig = {
   source: "environment"
 };
 
+const initialKnowledgeSummary: KnowledgeSummary = {
+  assets_total: 0,
+  server_total: 0,
+  open_alerts: 0,
+  checks_total: 0,
+  expiring_soon: 0,
+  credential_configured: 0,
+  top_regions: [],
+  top_risks: [],
+  suggested_questions: []
+};
+
+const initialAssetGraph: AssetGraph = {
+  nodes: [],
+  edges: []
+};
+
+const initialRenewalCenter: RenewalCenter = {
+  total: 0,
+  expiring_soon: 0,
+  expired: 0,
+  auto_renew_enabled: 0,
+  unknown: 0,
+  items: []
+};
+
 const emptyAccessProfile: ServerAccessProfile = {
   asset_id: 0,
   method: "cloud_assistant",
@@ -454,6 +485,11 @@ export function App(): JSX.Element {
   const [diagnoses, setDiagnoses] = useState<LocalizedDiagnosis[]>([]);
   const [aiConfig, setAiConfig] = useState<AiConfig>(initialAiConfig);
   const [aiTestResult, setAiTestResult] = useState<AiConfigTestResult | null>(null);
+  const [knowledgeSummary, setKnowledgeSummary] = useState<KnowledgeSummary>(initialKnowledgeSummary);
+  const [knowledgeQuestion, setKnowledgeQuestion] = useState("");
+  const [knowledgeAnswer, setKnowledgeAnswer] = useState<KnowledgeAnswer | null>(null);
+  const [assetGraph, setAssetGraph] = useState<AssetGraph>(initialAssetGraph);
+  const [renewalCenter, setRenewalCenter] = useState<RenewalCenter>(initialRenewalCenter);
   const [selectedAssetType, setSelectedAssetType] = useState<AssetFilter>("all");
   const [assetSearch, setAssetSearch] = useState("");
   const [selectedAssetRegion, setSelectedAssetRegion] = useState("all");
@@ -658,6 +694,7 @@ export function App(): JSX.Element {
     [dashboard.website_uptime, dashboard.website_uptime_ok, dashboard.website_uptime_total, locale]
   );
   const expiryOption = useMemo(() => buildExpiryOption(expiryRows, locale), [expiryRows, locale]);
+  const assetGraphOption = useMemo(() => buildAssetGraphOption(assetGraph, locale), [assetGraph, locale]);
 
   useEffect(() => {
     setAssetPage(1);
@@ -710,14 +747,17 @@ export function App(): JSX.Element {
 
   async function refreshAll(options: { quiet?: boolean; throwOnError?: boolean } = {}): Promise<void> {
     try {
-      const [nextDashboard, nextAccounts, nextAssets, nextChecks, nextResults, nextAlerts, nextAiConfig] = await Promise.all([
+      const [nextDashboard, nextAccounts, nextAssets, nextChecks, nextResults, nextAlerts, nextAiConfig, nextKnowledge, nextGraph, nextRenewals] = await Promise.all([
         apiGet<DashboardSummary>("/dashboard"),
         apiGet<CloudAccount[]>("/cloud-accounts"),
         apiGet<Asset[]>("/assets"),
         apiGet<Check[]>("/checks"),
         apiGet<CheckResult[]>("/check-results"),
         apiGet<Alert[]>("/alerts"),
-        apiGet<AiConfig>("/settings/ai")
+        apiGet<AiConfig>("/settings/ai"),
+        apiGet<KnowledgeSummary>("/knowledge/summary"),
+        apiGet<AssetGraph>("/asset-graph"),
+        apiGet<RenewalCenter>("/renewals")
       ]);
       setDashboard(nextDashboard);
       setAccounts(nextAccounts);
@@ -732,6 +772,9 @@ export function App(): JSX.Element {
       setResults(nextResults);
       setAlerts(nextAlerts);
       setAiConfig(nextAiConfig);
+      setKnowledgeSummary(nextKnowledge);
+      setAssetGraph(nextGraph);
+      setRenewalCenter(nextRenewals);
       setAiConfigForm((current) => ({
         ...current,
         base_url: nextAiConfig.base_url,
@@ -848,6 +891,20 @@ export function App(): JSX.Element {
       setBusyAction("");
       setAuthChecked(true);
     }
+  }
+
+  async function handleKnowledgeQuery(questionOverride?: string): Promise<void> {
+    const question = (questionOverride ?? knowledgeQuestion).trim();
+    if (!question) {
+      setNotice(locale === "zh" ? "请输入要查询的问题。" : "Enter a question first.");
+      return;
+    }
+    setKnowledgeQuestion(question);
+    await withBusy("knowledge-query", async () => {
+      const answer = await apiPost<KnowledgeAnswer>("/knowledge/query", { question, locale });
+      setKnowledgeAnswer(answer);
+      setNotice(locale === "zh" ? "本地知识库已生成回答。" : "Local knowledge answer generated.");
+    });
   }
 
   async function handleLogout(): Promise<void> {
@@ -2055,7 +2112,7 @@ export function App(): JSX.Element {
               onClick={() => setActiveView(view.id)}
             >
               <view.icon aria-hidden="true" />
-              <span>{t.nav[view.id]}</span>
+              <span>{navLabel(view.id, locale, t)}</span>
             </button>
           ))}
         </nav>
@@ -2068,7 +2125,7 @@ export function App(): JSX.Element {
               onClick={() => setActiveView(view.id)}
             >
               <view.icon aria-hidden="true" />
-              <span>{t.nav[view.id]}</span>
+              <span>{navLabel(view.id, locale, t)}</span>
             </button>
           ))}
         </nav>
@@ -2077,7 +2134,7 @@ export function App(): JSX.Element {
       <main className="workspace">
         <header className="topbar">
           <div>
-            <h1>{t.titles[activeView]}</h1>
+            <h1>{pageTitle(activeView, locale, t)}</h1>
           </div>
           <div className="topbar-actions">
             {showNotice && (
@@ -2617,6 +2674,179 @@ export function App(): JSX.Element {
                   <ArrowRight aria-hidden="true" />
                 </button>
               </div>
+            </div>
+          </section>
+        )}
+
+        {activeView === "knowledge" && (
+          <section className="intelligence-page">
+            <section className="knowledge-hero panel">
+              <PanelHeader
+                title={locale === "zh" ? "本地知识库" : "Local Knowledge Base"}
+                action={<span className="source-badge">{locale === "zh" ? "仅本地数据" : "Local only"}</span>}
+              />
+              <div className="knowledge-metrics">
+                <Metric label={locale === "zh" ? "资产" : "Assets"} value={knowledgeSummary.assets_total} icon={Database} />
+                <Metric label={locale === "zh" ? "服务器" : "Servers"} value={knowledgeSummary.server_total} icon={Server} />
+                <Metric label={locale === "zh" ? "30天内到期" : "Due <30d"} value={knowledgeSummary.expiring_soon} icon={CalendarClock} tone={knowledgeSummary.expiring_soon > 0 ? "warn" : "good"} />
+                <Metric label={locale === "zh" ? "已配凭据" : "Credentials"} value={knowledgeSummary.credential_configured} icon={KeyRound} />
+              </div>
+              <form
+                className="knowledge-query"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void handleKnowledgeQuery();
+                }}
+              >
+                <input
+                  value={knowledgeQuestion}
+                  onChange={(event) => setKnowledgeQuestion(event.target.value)}
+                  placeholder={locale === "zh" ? "问本地资产、续费、告警、SSH、使用率..." : "Ask about local assets, renewals, alerts, SSH, usage..."}
+                />
+                <button type="submit" className="primary-button" disabled={busyAction === "knowledge-query"}>
+                  <Bot aria-hidden="true" />
+                  {locale === "zh" ? "查询" : "Ask"}
+                </button>
+              </form>
+              <div className="suggestion-row">
+                {knowledgeSummary.suggested_questions.map((question) => (
+                  <button type="button" key={question} onClick={() => void handleKnowledgeQuery(question)}>
+                    {question}
+                  </button>
+                ))}
+              </div>
+            </section>
+
+            <section className="panel knowledge-answer-panel">
+              <PanelHeader title={locale === "zh" ? "回答" : "Answer"} />
+              {knowledgeAnswer ? (
+                <div className="knowledge-answer">
+                  <strong>{knowledgeAnswer.answer}</strong>
+                  <div className="knowledge-action-list">
+                    {knowledgeAnswer.actions.map((action) => (
+                      <span key={action}>{action}</span>
+                    ))}
+                  </div>
+                  <div className="knowledge-evidence-grid">
+                    {knowledgeAnswer.evidence.slice(0, 12).map((item, index) => (
+                      <div className="evidence-card" key={`${knowledgeAnswer.intent}-${index}`}>
+                        {Object.entries(item).slice(0, 5).map(([key, value]) => (
+                          <div key={key}>
+                            <span>{knowledgeFieldLabel(key, locale)}</span>
+                            <strong>{formatEvidenceValue(value, locale)}</strong>
+                          </div>
+                        ))}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              ) : (
+                <EmptyState text={locale === "zh" ? "输入问题后，会基于本地数据库生成回答。" : "Ask a question to generate an answer from the local database."} />
+              )}
+            </section>
+          </section>
+        )}
+
+        {activeView === "graph" && (
+          <section className="graph-page">
+            <section className="panel graph-overview-panel">
+              <PanelHeader
+                title={locale === "zh" ? "资产关系图" : "Asset Graph"}
+                action={<span className="source-badge">{assetGraph.nodes.length} nodes / {assetGraph.edges.length} edges</span>}
+              />
+              <div className="graph-layout">
+                <div className="graph-canvas">
+                  <Suspense fallback={<div className="chart-loading" />}>
+                    <EChart option={assetGraphOption} />
+                  </Suspense>
+                </div>
+                <div className="graph-side">
+                  <h3>{locale === "zh" ? "关系来源" : "Sources"}</h3>
+                  <div className="relation-list">
+                    {assetGraph.edges.slice(0, 12).map((edge, index) => (
+                      <div className="relation-item" key={`${edge.source}-${edge.target}-${index}`}>
+                        <strong>{relationLabel(edge.relation, locale)}</strong>
+                        <span>{edge.confidence === "stored" ? (locale === "zh" ? "显式保存" : "Stored") : (locale === "zh" ? "自动推断" : "Inferred")}</span>
+                      </div>
+                    ))}
+                    {assetGraph.edges.length === 0 && <EmptyState text={locale === "zh" ? "暂无可推断关系。" : "No inferred relations yet."} />}
+                  </div>
+                </div>
+              </div>
+            </section>
+          </section>
+        )}
+
+        {activeView === "renewals" && (
+          <section className="panel table-panel full-height renewal-center-panel">
+            <PanelHeader
+              title={locale === "zh" ? "续费中心" : "Renewal Center"}
+              action={
+                <a className="secondary-button" href={ALIYUN_RENEWAL_URL} target="_blank" rel="noreferrer">
+                  <CalendarClock aria-hidden="true" />
+                  {locale === "zh" ? "打开阿里云续费" : "Open Alibaba Cloud"}
+                </a>
+              }
+            />
+            <div className="renewal-summary-strip">
+              <Metric label={locale === "zh" ? "资产" : "Assets"} value={renewalCenter.total} icon={Database} />
+              <Metric label={locale === "zh" ? "30天内" : "Due <30d"} value={renewalCenter.expiring_soon} icon={CalendarClock} tone={renewalCenter.expiring_soon > 0 ? "warn" : "good"} />
+              <Metric label={locale === "zh" ? "已过期" : "Expired"} value={renewalCenter.expired} icon={AlertTriangle} tone={renewalCenter.expired > 0 ? "bad" : "good"} />
+              <Metric label={locale === "zh" ? "自动续费" : "Auto renew"} value={renewalCenter.auto_renew_enabled} icon={CheckCircle2} tone="good" />
+            </div>
+            <div className="renewal-table-shell">
+              <table className="renewal-table">
+                <thead>
+                  <tr>
+                    <th>{t.table.asset}</th>
+                    <th>{t.table.type}</th>
+                    <th>{t.table.region}</th>
+                    <th>{t.table.expires}</th>
+                    <th>{t.table.renewal}</th>
+                    <th>{locale === "zh" ? "来源" : "Source"}</th>
+                    <th>{t.table.action}</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {renewalCenter.items.length === 0 && (
+                    <tr>
+                      <td colSpan={7}><EmptyState text={locale === "zh" ? "暂无续费数据。" : "No renewal data."} /></td>
+                    </tr>
+                  )}
+                  {renewalCenter.items.map((item) => (
+                    <tr key={item.asset_id}>
+                      <td>
+                        <strong>{item.name}</strong>
+                        <span className="mono">{item.asset_id}</span>
+                      </td>
+                      <td>{assetTypeLabel(item.type, locale)}</td>
+                      <td>{item.region}</td>
+                      <td>{renewalDueLabel(item, locale)}</td>
+                      <td><span className={`renewal-status ${item.status}`}>{renewalCenterStatusLabel(item, locale)}</span></td>
+                      <td>{renewalSourceLabel(item.source, locale)}</td>
+                      <td className="row-actions">
+                        <button
+                          type="button"
+                          className="text-button"
+                          onClick={() => {
+                            const asset = assets.find((entry) => entry.id === item.asset_id);
+                            if (asset) {
+                              void handleOpenAssetDetail(asset);
+                            }
+                          }}
+                        >
+                          {t.actions.details}
+                        </button>
+                        {item.console_url && (
+                          <a className="text-link" href={item.console_url} target="_blank" rel="noreferrer">
+                            {t.actions.openConsole}
+                          </a>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
             </div>
           </section>
         )}
@@ -3451,13 +3681,13 @@ function checkTypeDescription(type: string, locale: Locale): { title: string; de
     tcp: {
       title: "TCP 端口",
       description: "尝试连接主机端口，用来判断 80、443、3306、8888 等端口是否开放。",
-      target: "8.148.249.36:80",
+      target: "203.0.113.10:80",
       requirement: "本机网络能连到该 IP 和端口。"
     },
     ssh: {
       title: "SSH 可连通",
       description: "使用资产详情里保存的 SSH 用户、密码或私钥登录一次，验证服务器可登录。",
-      target: "8.148.249.36:22",
+      target: "203.0.113.10:22",
       requirement: "先在资产详情配置 SSH 访问资料。"
     },
     ecs_metric: {
@@ -3483,13 +3713,13 @@ function checkTypeDescription(type: string, locale: Locale): { title: string; de
     tcp: {
       title: "TCP port",
       description: "Connects to a host and port to verify whether a service port is open.",
-      target: "8.148.249.36:80",
+      target: "203.0.113.10:80",
       requirement: "This machine must be able to reach the IP and port."
     },
     ssh: {
       title: "SSH reachability",
       description: "Logs in with the SSH username and password/key saved on the asset.",
-      target: "8.148.249.36:22",
+      target: "203.0.113.10:22",
       requirement: "Configure the asset SSH access profile first."
     },
     ecs_metric: {
@@ -4422,6 +4652,78 @@ function buildRegionDistributionOption(rows: ChartDatum[], locale: Locale): ECha
   };
 }
 
+function buildAssetGraphOption(graph: AssetGraph, locale: Locale): EChartsOption {
+  const categories = Array.from(new Set(graph.nodes.map((node) => node.type))).map((type) => ({
+    name: assetTypeLabel(type, locale)
+  }));
+  const categoryIndex = new Map(categories.map((category, index) => [category.name, index]));
+  return {
+    color: chartPalette,
+    tooltip: {
+      ...chartTooltipStyle,
+      formatter: (params: unknown) => {
+        const item = params as { dataType?: string; data?: { name?: string; assetLabel?: string; relation?: string; region?: string; type?: string } };
+        if (item.dataType === "edge") {
+          return `${locale === "zh" ? "关系" : "Relation"}<br/><strong>${relationLabel(item.data?.relation || "", locale)}</strong>`;
+        }
+        return `${item.data?.name || item.data?.assetLabel || ""}<br/>${assetTypeLabel(item.data?.type || "", locale)} / ${item.data?.region || "-"}`;
+      }
+    },
+    legend: {
+      right: 12,
+      top: 12,
+      textStyle: { color: chartMuted, fontSize: 12 },
+      data: categories.map((category) => category.name)
+    },
+    series: [
+      {
+        type: "graph",
+        layout: "force",
+        roam: true,
+        focusNodeAdjacency: true,
+        categories,
+        force: {
+          repulsion: 220,
+          edgeLength: [70, 150],
+          gravity: 0.08
+        },
+        label: {
+          show: true,
+          color: chartInk,
+          fontSize: 11,
+          overflow: "truncate",
+          width: 110
+        },
+        lineStyle: {
+          color: "source",
+          opacity: 0.42,
+          curveness: 0.12,
+          width: 1.4
+        },
+        edgeSymbol: ["none", "arrow"],
+        edgeSymbolSize: 8,
+        data: graph.nodes.map((node) => {
+          const categoryName = assetTypeLabel(node.type, locale);
+          return {
+            id: node.id,
+            name: node.label,
+            assetLabel: node.label,
+            type: node.type,
+            region: node.region,
+            category: categoryIndex.get(categoryName) ?? 0,
+            symbolSize: node.type === "domain" ? 54 : node.type === "dns" ? 44 : 48
+          };
+        }),
+        links: graph.edges.map((edge) => ({
+          source: edge.source,
+          target: edge.target,
+          relation: edge.relation
+        }))
+      }
+    ]
+  };
+}
+
 function formatUptimeCaption(summary: DashboardSummary, locale: Locale): string {
   if (summary.website_uptime_total === 0 || summary.website_uptime === null) {
     return locale === "zh"
@@ -4660,6 +4962,120 @@ function assetTypeLabel(type: string, locale: Locale): string {
     integration: "Integration"
   };
   return (locale === "zh" ? zh : en)[type] ?? type;
+}
+
+function navLabel(view: NavView, locale: Locale, t: typeof copy.zh | typeof copy.en): string {
+  const labels: Record<string, { zh: string; en: string }> = {
+    knowledge: { zh: "知识库", en: "Knowledge" },
+    graph: { zh: "关系图", en: "Graph" },
+    renewals: { zh: "续费", en: "Renewals" }
+  };
+  if (labels[view]) {
+    return labels[view][locale];
+  }
+  return t.nav[view as keyof typeof t.nav];
+}
+
+function pageTitle(view: View, locale: Locale, t: typeof copy.zh | typeof copy.en): string {
+  const labels: Record<string, { zh: string; en: string }> = {
+    knowledge: { zh: "本地知识库", en: "Local Knowledge" },
+    graph: { zh: "资产关系图", en: "Asset Graph" },
+    renewals: { zh: "续费中心", en: "Renewal Center" }
+  };
+  if (labels[view]) {
+    return labels[view][locale];
+  }
+  return t.titles[view as keyof typeof t.titles];
+}
+
+function knowledgeFieldLabel(field: string, locale: Locale): string {
+  const labels: Record<string, { zh: string; en: string }> = {
+    asset_id: { zh: "资产 ID", en: "Asset ID" },
+    alert_id: { zh: "告警 ID", en: "Alert ID" },
+    name: { zh: "名称", en: "Name" },
+    title: { zh: "标题", en: "Title" },
+    region: { zh: "地域", en: "Region" },
+    type: { zh: "类型", en: "Type" },
+    status: { zh: "状态", en: "Status" },
+    severity: { zh: "级别", en: "Severity" },
+    days_left: { zh: "剩余天数", en: "Days left" },
+    expires_at: { zh: "到期", en: "Expires" },
+    auto_renew: { zh: "自动续费", en: "Auto renew" },
+    disk_used_percent: { zh: "磁盘", en: "Disk" },
+    memory_used_percent: { zh: "内存", en: "Memory" },
+    ssh: { zh: "SSH", en: "SSH" },
+    bt_panel: { zh: "宝塔", en: "BT Panel" },
+    failure_count: { zh: "失败次数", en: "Failures" }
+  };
+  return labels[field]?.[locale] ?? field;
+}
+
+function formatEvidenceValue(value: unknown, locale: Locale): string {
+  if (value === null || value === undefined || value === "") {
+    return "-";
+  }
+  if (typeof value === "boolean") {
+    return value ? (locale === "zh" ? "是" : "Yes") : (locale === "zh" ? "否" : "No");
+  }
+  if (typeof value === "number") {
+    return Number.isInteger(value) ? String(value) : value.toFixed(2);
+  }
+  if (Array.isArray(value)) {
+    return value.join(", ");
+  }
+  if (typeof value === "object") {
+    return JSON.stringify(value);
+  }
+  return String(value);
+}
+
+function relationLabel(relation: string, locale: Locale): string {
+  const labels: Record<string, { zh: string; en: string }> = {
+    resolves_to: { zh: "解析到服务器", en: "Resolves to" },
+    has_dns_record: { zh: "包含 DNS 记录", en: "Has DNS record" },
+    depends_on: { zh: "依赖", en: "Depends on" },
+    contains: { zh: "包含", en: "Contains" }
+  };
+  return labels[relation]?.[locale] ?? relation;
+}
+
+function renewalDueLabel(item: RenewalItem, locale: Locale): string {
+  if (!item.expires_at) {
+    return locale === "zh" ? "未获取" : "Unknown";
+  }
+  if (item.days_left === null) {
+    return item.expires_at;
+  }
+  return locale === "zh" ? `${item.expires_at}（${item.days_left} 天）` : `${item.expires_at} (${item.days_left}d)`;
+}
+
+function renewalCenterStatusLabel(item: RenewalItem, locale: Locale): string {
+  if (item.status === "expired") {
+    return locale === "zh" ? "已过期" : "Expired";
+  }
+  if (item.status === "urgent") {
+    return locale === "zh" ? "紧急" : "Urgent";
+  }
+  if (item.status === "soon") {
+    return locale === "zh" ? "临近" : "Soon";
+  }
+  if (item.auto_renew === true) {
+    return locale === "zh" ? "自动续费" : "Auto";
+  }
+  if (item.status === "unknown") {
+    return locale === "zh" ? "未获取" : "Unknown";
+  }
+  return locale === "zh" ? "正常" : "OK";
+}
+
+function renewalSourceLabel(source: string, locale: Locale): string {
+  if (source === "aliyun_api") {
+    return locale === "zh" ? "阿里云" : "Alibaba Cloud";
+  }
+  if (source === "local_profile") {
+    return locale === "zh" ? "本地资料" : "Local profile";
+  }
+  return locale === "zh" ? "缺失" : "Missing";
 }
 
 function assetMatchesType(asset: Asset, filter: AssetFilter): boolean {

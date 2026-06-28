@@ -11,7 +11,7 @@ from app.services.seed import purge_legacy_sample_data
 
 settings = get_settings()
 
-app = FastAPI(title=settings.app_name, version="0.2.0")
+app = FastAPI(title=settings.app_name, version="0.3.0")
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origin_list,
