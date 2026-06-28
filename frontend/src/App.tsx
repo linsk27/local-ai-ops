@@ -695,6 +695,7 @@ export function App(): JSX.Element {
   );
   const expiryOption = useMemo(() => buildExpiryOption(expiryRows, locale), [expiryRows, locale]);
   const assetGraphOption = useMemo(() => buildAssetGraphOption(assetGraph, locale), [assetGraph, locale]);
+  const assetGraphNodeMap = useMemo(() => new Map(assetGraph.nodes.map((node) => [node.id, node])), [assetGraph.nodes]);
 
   useEffect(() => {
     setAssetPage(1);
@@ -2755,20 +2756,31 @@ export function App(): JSX.Element {
                 action={<span className="source-badge">{assetGraph.nodes.length} nodes / {assetGraph.edges.length} edges</span>}
               />
               <div className="graph-layout">
-                <div className="graph-canvas">
+                <div className="graph-canvas" aria-label={locale === "zh" ? "资产关系图画布" : "Asset graph canvas"}>
                   <Suspense fallback={<div className="chart-loading" />}>
                     <EChart option={assetGraphOption} />
                   </Suspense>
                 </div>
                 <div className="graph-side">
-                  <h3>{locale === "zh" ? "关系来源" : "Sources"}</h3>
+                  <div className="graph-side-header">
+                    <h3>{locale === "zh" ? "关系来源" : "Sources"}</h3>
+                    <span>{assetGraph.edges.length}</span>
+                  </div>
                   <div className="relation-list">
-                    {assetGraph.edges.slice(0, 12).map((edge, index) => (
-                      <div className="relation-item" key={`${edge.source}-${edge.target}-${index}`}>
-                        <strong>{relationLabel(edge.relation, locale)}</strong>
-                        <span>{edge.confidence === "stored" ? (locale === "zh" ? "显式保存" : "Stored") : (locale === "zh" ? "自动推断" : "Inferred")}</span>
-                      </div>
-                    ))}
+                    {assetGraph.edges.map((edge, index) => {
+                      const source = assetGraphNodeMap.get(edge.source);
+                      const target = assetGraphNodeMap.get(edge.target);
+                      return (
+                        <div className="relation-item" key={`${edge.source}-${edge.target}-${index}`}>
+                          <div className="relation-copy">
+                            <strong>{relationLabel(edge.relation, locale)}</strong>
+                            <span>{source?.label || edge.source}</span>
+                            <span>{target?.label || edge.target}</span>
+                          </div>
+                          <span className="relation-source">{edge.confidence === "stored" ? (locale === "zh" ? "保存" : "Stored") : (locale === "zh" ? "推断" : "Inferred")}</span>
+                        </div>
+                      );
+                    })}
                     {assetGraph.edges.length === 0 && <EmptyState text={locale === "zh" ? "暂无可推断关系。" : "No inferred relations yet."} />}
                   </div>
                 </div>
@@ -4678,19 +4690,26 @@ function buildAssetGraphOption(graph: AssetGraph, locale: Locale): EChartsOption
     series: [
       {
         type: "graph",
-        layout: "force",
+        layout: "circular",
         roam: true,
+        zoom: 0.72,
+        left: 36,
+        right: 36,
+        top: 62,
+        bottom: 32,
+        draggable: true,
+        circular: {
+          rotateLabel: false
+        },
         emphasis: {
-          focus: "adjacency"
+          focus: "adjacency",
+          label: {
+            show: true
+          }
         },
         categories,
-        force: {
-          repulsion: 220,
-          edgeLength: [70, 150],
-          gravity: 0.08
-        },
         label: {
-          show: true,
+          show: false,
           color: chartInk,
           fontSize: 11,
           overflow: "truncate",
@@ -4713,7 +4732,7 @@ function buildAssetGraphOption(graph: AssetGraph, locale: Locale): EChartsOption
             type: node.type,
             region: node.region,
             category: categoryIndex.get(categoryName) ?? 0,
-            symbolSize: node.type === "domain" ? 54 : node.type === "dns" ? 44 : 48
+            symbolSize: node.type === "domain" ? 42 : node.type === "dns" ? 34 : 38
           };
         }),
         links: graph.edges.map((edge) => ({
