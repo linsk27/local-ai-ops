@@ -4680,7 +4680,9 @@ function buildAssetGraphOption(graph: AssetGraph, locale: Locale): EChartsOption
         type: "graph",
         layout: "force",
         roam: true,
-        focusNodeAdjacency: true,
+        emphasis: {
+          focus: "adjacency"
+        },
         categories,
         force: {
           repulsion: 220,
