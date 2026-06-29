@@ -56,7 +56,7 @@ type ConfirmDialogOptions = {
 const assetFilters: AssetFilter[] = ["all", "server", "oss", "domain", "dns"];
 const assetPageSizeOptions = [10, 20, 50];
 const riskOverviewKinds = ["disk_high", "memory_high", "expiring", "access_missing", "usage_missing"];
-const ALIYUN_RENEWAL_URL = "https://billing-cost.console.aliyun.com/renew/manual";
+const ALIYUN_RENEWAL_URL = "https://billing-cost.console.aliyun.com/fortune/fund-management/recharge";
 
 const EChart = lazy(() => import("./EChart"));
 
