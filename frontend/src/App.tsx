@@ -67,7 +67,6 @@ const mainViews: Array<{ id: NavView; icon: typeof Gauge }> = [
   { id: "alerts", icon: AlertTriangle },
   { id: "diagnosis", icon: Bot },
   { id: "knowledge", icon: BookOpen },
-  { id: "graph", icon: GitBranch },
   { id: "renewals", icon: CalendarClock }
 ];
 
@@ -2108,7 +2107,7 @@ export function App(): JSX.Element {
           {mainViews.map((view) => (
             <button
               type="button"
-              className={activeView === view.id ? "nav-item is-active" : "nav-item"}
+              className={isNavActive(view.id, activeView) ? "nav-item is-active" : "nav-item"}
               key={view.id}
               onClick={() => setActiveView(view.id)}
             >
@@ -2121,7 +2120,7 @@ export function App(): JSX.Element {
           {utilityViews.map((view) => (
             <button
               type="button"
-              className={activeView === view.id ? "nav-item is-active" : "nav-item"}
+              className={isNavActive(view.id, activeView) ? "nav-item is-active" : "nav-item"}
               key={view.id}
               onClick={() => setActiveView(view.id)}
             >
@@ -2266,17 +2265,6 @@ export function App(): JSX.Element {
                 title={t.panels.accounts}
                 action={
                   <div className="panel-actions">
-                    <a
-                      className="secondary-button"
-                      href={ALIYUN_RENEWAL_URL}
-                      target="_blank"
-                      rel="noreferrer"
-                      onClick={() => setNotice(locale === "zh" ? "已打开阿里云资源续订页面。" : "Opening Alibaba Cloud renewal page.")}
-                      title={locale === "zh" ? "打开阿里云费用与成本控制台的资源续订页面。" : "Open the Alibaba Cloud renewal page in Billing and Cost Management."}
-                    >
-                      <CalendarClock aria-hidden="true" />
-                      {locale === "zh" ? "我要续费" : "Renew"}
-                    </a>
                     <button type="button" className="primary-button" onClick={() => setAccountModalOpen(true)}>
                       <KeyRound aria-hidden="true" />
                       {t.panels.addAccount}
@@ -2373,6 +2361,15 @@ export function App(): JSX.Element {
               title={t.panels.assets}
               action={
                 <div className="panel-actions asset-toolbar">
+                  <button
+                    type="button"
+                    className="secondary-button"
+                    onClick={() => setActiveView("graph")}
+                    title={locale === "zh" ? "查看当前资产、域名、DNS 和服务器之间的关系图。" : "View relations between assets, domains, DNS, and servers."}
+                  >
+                    <GitBranch aria-hidden="true" />
+                    {locale === "zh" ? "关系图" : "Graph"}
+                  </button>
                   <button
                     type="button"
                     className="secondary-button"
@@ -4993,6 +4990,13 @@ function assetTypeLabel(type: string, locale: Locale): string {
     integration: "Integration"
   };
   return (locale === "zh" ? zh : en)[type] ?? type;
+}
+
+function isNavActive(navView: NavView, activeView: View): boolean {
+  if (navView === "assets") {
+    return activeView === "assets" || activeView === "asset-detail" || activeView === "graph";
+  }
+  return navView === activeView;
 }
 
 function navLabel(view: NavView, locale: Locale, t: typeof copy.zh | typeof copy.en): string {
