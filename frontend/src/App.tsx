@@ -2693,54 +2693,101 @@ export function App(): JSX.Element {
         )}
 
         {activeView === "knowledge" && (
-          <section className="intelligence-page">
-            <section className="knowledge-hero panel">
+          <section className="intelligence-page knowledge-page">
+            <section className="panel knowledge-workbench">
               <PanelHeader
                 title={locale === "zh" ? "本地知识库" : "Local Knowledge Base"}
                 action={<span className="source-badge">{locale === "zh" ? "仅本地数据" : "Local only"}</span>}
               />
-              <div className="knowledge-metrics">
-                <Metric label={locale === "zh" ? "资产" : "Assets"} value={knowledgeSummary.assets_total} icon={Database} />
-                <Metric label={locale === "zh" ? "服务器" : "Servers"} value={knowledgeSummary.server_total} icon={Server} />
-                <Metric label={locale === "zh" ? "30天内到期" : "Due <30d"} value={knowledgeSummary.expiring_soon} icon={CalendarClock} tone={knowledgeSummary.expiring_soon > 0 ? "warn" : "good"} />
-                <Metric label={locale === "zh" ? "已配凭据" : "Credentials"} value={knowledgeSummary.credential_configured} icon={KeyRound} />
-              </div>
-              <form
-                className="knowledge-query"
-                onSubmit={(event) => {
-                  event.preventDefault();
-                  void handleKnowledgeQuery();
-                }}
-              >
-                <input
-                  value={knowledgeQuestion}
-                  onChange={(event) => setKnowledgeQuestion(event.target.value)}
-                  placeholder={locale === "zh" ? "问本地资产、续费、告警、SSH、使用率..." : "Ask about local assets, renewals, alerts, SSH, usage..."}
-                />
-                <button type="submit" className="primary-button" disabled={busyAction === "knowledge-query"}>
-                  <Bot aria-hidden="true" />
-                  {locale === "zh" ? "查询" : "Ask"}
-                </button>
-              </form>
-              <div className="suggestion-row">
-                {knowledgeSummary.suggested_questions.map((question) => (
-                  <button type="button" key={question} onClick={() => void handleKnowledgeQuery(question)}>
-                    {question}
-                  </button>
-                ))}
+              <div className="knowledge-workbench-grid">
+                <div className="knowledge-query-column">
+                  <div className="knowledge-query-heading">
+                    <Bot aria-hidden="true" />
+                    <div>
+                      <h2>{locale === "zh" ? "问本地运维数据" : "Ask Local Ops Data"}</h2>
+                      <p>{locale === "zh" ? "只读取本机数据库中的资产、告警、续费和采集结果。" : "Answers use only local assets, alerts, renewals, and check results."}</p>
+                    </div>
+                  </div>
+                  <form
+                    className="knowledge-query"
+                    onSubmit={(event) => {
+                      event.preventDefault();
+                      void handleKnowledgeQuery();
+                    }}
+                  >
+                    <input
+                      value={knowledgeQuestion}
+                      onChange={(event) => setKnowledgeQuestion(event.target.value)}
+                      placeholder={locale === "zh" ? "例如：哪些服务器缺少 SSH 凭据？" : "Example: which servers are missing SSH credentials?"}
+                    />
+                    <button type="submit" className="primary-button" disabled={busyAction === "knowledge-query"}>
+                      <Bot aria-hidden="true" />
+                      {locale === "zh" ? "查询" : "Ask"}
+                    </button>
+                  </form>
+                  <div className="suggestion-row" aria-label={locale === "zh" ? "常用问题" : "Suggested questions"}>
+                    {knowledgeSummary.suggested_questions.map((question) => (
+                      <button type="button" key={question} onClick={() => void handleKnowledgeQuery(question)}>
+                        {question}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                <aside className="knowledge-snapshot" aria-label={locale === "zh" ? "知识库数据概览" : "Knowledge data snapshot"}>
+                  <div className="knowledge-metrics">
+                    <Metric label={locale === "zh" ? "资产" : "Assets"} value={knowledgeSummary.assets_total} icon={Database} />
+                    <Metric label={locale === "zh" ? "服务器" : "Servers"} value={knowledgeSummary.server_total} icon={Server} />
+                    <Metric label={locale === "zh" ? "30天内到期" : "Due <30d"} value={knowledgeSummary.expiring_soon} icon={CalendarClock} tone={knowledgeSummary.expiring_soon > 0 ? "warn" : "good"} />
+                    <Metric label={locale === "zh" ? "已配凭据" : "Credentials"} value={knowledgeSummary.credential_configured} icon={KeyRound} />
+                  </div>
+                  <div className="knowledge-side-grid">
+                    <div className="knowledge-side-card">
+                      <h3>{locale === "zh" ? "地域覆盖" : "Region Coverage"}</h3>
+                      <div className="knowledge-mini-list">
+                        {knowledgeSummary.top_regions.slice(0, 4).map((region) => (
+                          <div key={region.region}>
+                            <span>{region.region}</span>
+                            <strong>{region.count}</strong>
+                          </div>
+                        ))}
+                        {knowledgeSummary.top_regions.length === 0 && <span className="muted-text">-</span>}
+                      </div>
+                    </div>
+                    <div className="knowledge-side-card">
+                      <h3>{locale === "zh" ? "风险线索" : "Risk Signals"}</h3>
+                      <div className="knowledge-mini-list">
+                        {knowledgeSummary.top_risks.slice(0, 4).map((risk) => (
+                          <div key={`${risk.asset_id}-${risk.kind}`}>
+                            <span>{risk.asset}</span>
+                            <strong>{riskKindLabel(risk.kind, locale)}</strong>
+                          </div>
+                        ))}
+                        {knowledgeSummary.top_risks.length === 0 && <span className="muted-text">{locale === "zh" ? "暂无风险" : "No risks"}</span>}
+                      </div>
+                    </div>
+                  </div>
+                </aside>
               </div>
             </section>
 
             <section className="panel knowledge-answer-panel">
-              <PanelHeader title={locale === "zh" ? "回答" : "Answer"} />
+              <PanelHeader title={locale === "zh" ? "查询结果" : "Query Result"} />
               {knowledgeAnswer ? (
                 <div className="knowledge-answer">
-                  <strong>{knowledgeAnswer.answer}</strong>
-                  <div className="knowledge-action-list">
-                    {knowledgeAnswer.actions.map((action) => (
-                      <span key={action}>{action}</span>
-                    ))}
+                  <div className="knowledge-answer-summary">
+                    <BookOpen aria-hidden="true" />
+                    <div>
+                      <span>{knowledgeAnswer.intent}</span>
+                      <strong>{knowledgeAnswer.answer}</strong>
+                    </div>
                   </div>
+                  {knowledgeAnswer.actions.length > 0 && (
+                    <div className="knowledge-action-list">
+                      {knowledgeAnswer.actions.map((action) => (
+                        <span key={action}>{action}</span>
+                      ))}
+                    </div>
+                  )}
                   <div className="knowledge-evidence-grid">
                     {knowledgeAnswer.evidence.slice(0, 12).map((item, index) => (
                       <div className="evidence-card" key={`${knowledgeAnswer.intent}-${index}`}>
@@ -2755,7 +2802,11 @@ export function App(): JSX.Element {
                   </div>
                 </div>
               ) : (
-                <EmptyState text={locale === "zh" ? "输入问题后，会基于本地数据库生成回答。" : "Ask a question to generate an answer from the local database."} />
+                <div className="knowledge-empty">
+                  <Bot aria-hidden="true" />
+                  <strong>{locale === "zh" ? "选择一个问题，或直接输入查询" : "Choose a question or type your own"}</strong>
+                  <span>{locale === "zh" ? "回答会显示结论、建议动作和可追溯的数据证据。" : "Results include an answer, suggested actions, and traceable evidence."}</span>
+                </div>
               )}
             </section>
           </section>
