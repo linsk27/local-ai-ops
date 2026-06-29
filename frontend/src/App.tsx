@@ -12,7 +12,6 @@ import {
   Database,
   ExternalLink,
   Gauge,
-  GitBranch,
   Globe2,
   CircleHelp,
   KeyRound,
@@ -2358,18 +2357,9 @@ export function App(): JSX.Element {
         {activeView === "assets" && (
           <section className="panel table-panel full-height asset-list-panel">
             <PanelHeader
-              title={t.panels.assets}
+              title={<AssetViewTitle activeView={activeView} locale={locale} title={t.panels.assets} onChange={setActiveView} />}
               action={
                 <div className="panel-actions asset-toolbar">
-                  <button
-                    type="button"
-                    className="secondary-button"
-                    onClick={() => setActiveView("graph")}
-                    title={locale === "zh" ? "查看当前资产、域名、DNS 和服务器之间的关系图。" : "View relations between assets, domains, DNS, and servers."}
-                  >
-                    <GitBranch aria-hidden="true" />
-                    {locale === "zh" ? "关系图" : "Graph"}
-                  </button>
                   <button
                     type="button"
                     className="secondary-button"
@@ -2749,7 +2739,7 @@ export function App(): JSX.Element {
           <section className="graph-page">
             <section className="panel graph-overview-panel">
               <PanelHeader
-                title={locale === "zh" ? "资产关系图" : "Asset Graph"}
+                title={<AssetViewTitle activeView={activeView} locale={locale} title={t.panels.assets} onChange={setActiveView} />}
                 action={<span className="source-badge">{assetGraph.nodes.length} nodes / {assetGraph.edges.length} edges</span>}
               />
               <div className="graph-layout">
@@ -3775,11 +3765,51 @@ function defaultCheckTarget(asset: Asset | null, type: string, preferredHost = "
   return "";
 }
 
-function PanelHeader({ title, action }: { title: string; action?: React.ReactNode }): JSX.Element {
+function PanelHeader({ title, action }: { title: React.ReactNode; action?: React.ReactNode }): JSX.Element {
   return (
     <div className="panel-header">
-      <h2>{title}</h2>
+      <div className="panel-title">
+        {typeof title === "string" ? <h2>{title}</h2> : title}
+      </div>
       {action}
+    </div>
+  );
+}
+
+function AssetViewTitle({
+  activeView,
+  locale,
+  title,
+  onChange
+}: {
+  activeView: View;
+  locale: Locale;
+  title: string;
+  onChange: (view: "assets" | "graph") => void;
+}): JSX.Element {
+  return (
+    <div className="asset-view-title">
+      <h2>{title}</h2>
+      <div className="asset-view-tabs" role="tablist" aria-label={locale === "zh" ? "资产视图" : "Asset views"}>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeView === "assets"}
+          className={activeView === "assets" ? "is-selected" : ""}
+          onClick={() => onChange("assets")}
+        >
+          {locale === "zh" ? "列表" : "List"}
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={activeView === "graph"}
+          className={activeView === "graph" ? "is-selected" : ""}
+          onClick={() => onChange("graph")}
+        >
+          {locale === "zh" ? "关系图" : "Graph"}
+        </button>
+      </div>
     </div>
   );
 }
@@ -5014,7 +5044,7 @@ function navLabel(view: NavView, locale: Locale, t: typeof copy.zh | typeof copy
 function pageTitle(view: View, locale: Locale, t: typeof copy.zh | typeof copy.en): string {
   const labels: Record<string, { zh: string; en: string }> = {
     knowledge: { zh: "本地知识库", en: "Local Knowledge" },
-    graph: { zh: "资产关系图", en: "Asset Graph" },
+    graph: { zh: "资源资产", en: "Assets" },
     renewals: { zh: "续费中心", en: "Renewal Center" }
   };
   if (labels[view]) {

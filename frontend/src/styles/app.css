@@ -701,10 +701,58 @@ textarea:focus-visible {
   margin-block-end: var(--space-3);
 }
 
+.panel-title {
+  min-inline-size: 0;
+}
+
 .panel-header h2 {
   margin: 0;
   font-size: var(--text-lg);
   letter-spacing: 0;
+}
+
+.asset-view-title {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  min-inline-size: 0;
+}
+
+.asset-view-tabs {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px;
+  border: var(--rule-thin) solid var(--color-rule);
+  border-radius: var(--radius-md);
+  background: color-mix(in srgb, var(--color-surface) 82%, var(--color-accent-soft));
+}
+
+.asset-view-tabs button {
+  min-block-size: 30px;
+  border: 0;
+  border-radius: calc(var(--radius-md) - 3px);
+  background: transparent;
+  color: var(--color-ink-muted);
+  padding: 0 var(--space-3);
+  font-size: var(--text-sm);
+  font-weight: 700;
+  transition: background var(--dur-fast) var(--ease-out), color var(--dur-fast) var(--ease-out), transform var(--dur-fast) var(--ease-out);
+}
+
+.asset-view-tabs button:hover {
+  color: var(--color-accent-strong);
+}
+
+.asset-view-tabs button:active {
+  transform: translateY(1px);
+}
+
+.asset-view-tabs button.is-selected {
+  background: var(--color-surface-raised);
+  color: var(--color-ink);
+  box-shadow: var(--shadow-soft);
 }
 
 .panel-actions {
