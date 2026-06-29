@@ -95,7 +95,7 @@ const copy = {
       assets: "资源资产",
       "asset-detail": "资产详情",
       checks: "监控编排",
-      alerts: "告警处置",
+      alerts: "告警列表",
       diagnosis: "AI 诊断",
       "ai-settings": "AI 配置"
     },
@@ -258,7 +258,7 @@ const copy = {
       assets: "Resource Inventory",
       "asset-detail": "Asset Detail",
       checks: "Monitoring",
-      alerts: "Alert Response",
+      alerts: "Alert List",
       diagnosis: "AI Diagnosis",
       "ai-settings": "AI Config"
     },
@@ -656,6 +656,11 @@ export function App(): JSX.Element {
   const assetRangeStart = filteredAssets.length === 0 ? 0 : (currentAssetPage - 1) * assetPageSize + 1;
   const assetRangeEnd = Math.min(filteredAssets.length, currentAssetPage * assetPageSize);
   const checkSummary = useMemo(() => summarizeChecks(checks), [checks]);
+  const failingChecks = useMemo(
+    () => checks.filter((check) => checkStatusForDisplay(check) === "failed"),
+    [checks]
+  );
+  const alertSummary = useMemo(() => summarizeAlerts(alerts), [alerts]);
   const filteredChecks = useMemo(
     () => checks.filter((check) => checkMatchesFilter(check, selectedCheckFilter)),
     [checks, selectedCheckFilter]
@@ -2627,18 +2632,30 @@ export function App(): JSX.Element {
               </div>
             </section>
 
-            <section className="panel results-panel">
-              <PanelHeader title={t.panels.results} />
-              <div className="results-feed">
-                {results.slice(0, 8).map((result) => (
-                  <div className="result-line" key={result.id}>
-                    <StatusIcon status={result.status} />
-                    <span>{localizeGeneratedText(result.message, locale)}</span>
-                    <time>{formatApiDateTime(result.checked_at, locale)}</time>
-                  </div>
-                ))}
-                {results.length === 0 && <EmptyState text={locale === "zh" ? "暂无执行结果" : "No check results"} />}
-              </div>
+            <section className="monitoring-side-stack">
+              <MonitoringFlowPanel
+                failingChecks={failingChecks}
+                alerts={alerts}
+                onRunCheck={handleRunCheck}
+                onOpenAlerts={() => setActiveView("alerts")}
+                onOpenDiagnosis={() => setActiveView("diagnosis")}
+                onDiagnoseAlert={handleDiagnoseAlert}
+                busyAction={busyAction}
+                locale={locale}
+              />
+              <section className="panel results-panel">
+                <PanelHeader title={t.panels.results} />
+                <div className="results-feed">
+                  {results.slice(0, 8).map((result) => (
+                    <div className="result-line" key={result.id}>
+                      <StatusIcon status={result.status} />
+                      <span>{localizeGeneratedText(result.message, locale)}</span>
+                      <time>{formatApiDateTime(result.checked_at, locale)}</time>
+                    </div>
+                  ))}
+                  {results.length === 0 && <EmptyState text={locale === "zh" ? "暂无执行结果" : "No check results"} />}
+                </div>
+              </section>
             </section>
             </section>
           </section>
@@ -2646,7 +2663,16 @@ export function App(): JSX.Element {
 
         {activeView === "alerts" && (
           <section className="panel table-panel full-height alert-list-panel">
-            <PanelHeader title={t.panels.alerts} />
+            <PanelHeader
+              title={locale === "zh" ? "告警列表" : "Alert List"}
+              action={
+                <button type="button" className="secondary-button" onClick={() => setActiveView("diagnosis")}>
+                  <Bot aria-hidden="true" />
+                  {locale === "zh" ? "AI 诊断" : "AI Diagnosis"}
+                </button>
+              }
+            />
+            <AlertSummaryBar summary={alertSummary} locale={locale} />
             <div className="alert-table-scroll">
               <AlertTable alerts={paginatedAlerts} onDiagnose={handleDiagnoseAlert} onUpdate={handleUpdateAlert} busyAction={busyAction} locale={locale} />
             </div>
@@ -4049,6 +4075,23 @@ function summarizeChecks(checks: Check[]): { total: number; failing: number; ok:
   );
 }
 
+function summarizeAlerts(alerts: Alert[]): { total: number; open: number; acknowledged: number; closed: number } {
+  return alerts.reduce(
+    (summary, alert) => {
+      summary.total += 1;
+      if (alert.status === "open") {
+        summary.open += 1;
+      } else if (alert.status === "acknowledged") {
+        summary.acknowledged += 1;
+      } else if (alert.status === "closed") {
+        summary.closed += 1;
+      }
+      return summary;
+    },
+    { total: 0, open: 0, acknowledged: 0, closed: 0 }
+  );
+}
+
 function checkMatchesFilter(check: Check, filter: CheckFilter): boolean {
   if (filter === "all") {
     return true;
@@ -4178,6 +4221,106 @@ function ChartPanel({
       )}
       {caption && <p className="chart-caption">{caption}</p>}
     </section>
+  );
+}
+
+function MonitoringFlowPanel({
+  failingChecks,
+  alerts,
+  onRunCheck,
+  onOpenAlerts,
+  onOpenDiagnosis,
+  onDiagnoseAlert,
+  busyAction,
+  locale
+}: {
+  failingChecks: Check[];
+  alerts: Alert[];
+  onRunCheck: (check: Check) => Promise<void>;
+  onOpenAlerts: () => void;
+  onOpenDiagnosis: () => void;
+  onDiagnoseAlert: (alert: Alert) => Promise<void>;
+  busyAction: string;
+  locale: Locale;
+}): JSX.Element {
+  const openAlerts = alerts.filter((alert) => alert.status === "open");
+  const activeAlertForCheck = (check: Check) => {
+    if (check.open_alert_id) {
+      return alerts.find((alert) => alert.id === check.open_alert_id);
+    }
+    return alerts.find((alert) => alert.asset_id === check.asset_id && alert.status === "open");
+  };
+
+  return (
+    <section className="panel monitoring-flow-panel">
+      <PanelHeader
+        title={locale === "zh" ? "异常链路" : "Incident Flow"}
+        action={
+          <button type="button" className="text-button" onClick={onOpenAlerts}>
+            {locale === "zh" ? "告警列表" : "Alerts"}
+          </button>
+        }
+      />
+      <div className="flow-step-grid" aria-label={locale === "zh" ? "监控告警诊断链路" : "Monitoring alert diagnosis flow"}>
+        <div className="flow-step">
+          <Activity aria-hidden="true" />
+          <span>{locale === "zh" ? "监控异常" : "Failing checks"}</span>
+          <strong>{failingChecks.length}</strong>
+        </div>
+        <div className="flow-step">
+          <AlertTriangle aria-hidden="true" />
+          <span>{locale === "zh" ? "开放告警" : "Open alerts"}</span>
+          <strong>{openAlerts.length}</strong>
+        </div>
+        <button type="button" className="flow-step is-action" onClick={onOpenDiagnosis}>
+          <Bot aria-hidden="true" />
+          <span>{locale === "zh" ? "AI 诊断" : "AI diagnosis"}</span>
+          <strong>{locale === "zh" ? "进入" : "Open"}</strong>
+        </button>
+      </div>
+      <div className="incident-list">
+        {failingChecks.slice(0, 4).map((check) => {
+          const alert = activeAlertForCheck(check);
+          return (
+            <div className="incident-item" key={check.id}>
+              <div>
+                <strong>{checkPurposeLabel(check, locale)}</strong>
+                <span>{check.asset_name || check.name}</span>
+                <small>{check.last_message ? localizeGeneratedText(check.last_message, locale) : check.target}</small>
+              </div>
+              <div className="incident-actions">
+                <button type="button" className="text-button" onClick={() => void onRunCheck(check)} disabled={busyAction === `run-${check.id}`}>
+                  {locale === "zh" ? "执行" : "Run"}
+                </button>
+                {alert ? (
+                  <button type="button" className="text-button" onClick={() => void onDiagnoseAlert(alert)} disabled={busyAction === `diagnose-${alert.id}`}>
+                    {locale === "zh" ? "诊断" : "Diagnose"}
+                  </button>
+                ) : (
+                  <button type="button" className="text-button" onClick={onOpenAlerts}>
+                    {locale === "zh" ? "告警" : "Alert"}
+                  </button>
+                )}
+              </div>
+            </div>
+          );
+        })}
+        {failingChecks.length === 0 && (
+          <EmptyState text={locale === "zh" ? "当前没有异常监控项。" : "No failing checks right now."} />
+        )}
+      </div>
+    </section>
+  );
+}
+
+function AlertSummaryBar({ summary, locale }: { summary: { total: number; open: number; acknowledged: number; closed: number }; locale: Locale }): JSX.Element {
+  return (
+    <div className="alert-summary-bar">
+      <Metric label={locale === "zh" ? "告警总数" : "Total"} value={summary.total} icon={AlertTriangle} />
+      <Metric label={locale === "zh" ? "开放" : "Open"} value={summary.open} icon={Activity} tone={summary.open > 0 ? "bad" : "good"} />
+      <Metric label={locale === "zh" ? "已确认" : "Acknowledged"} value={summary.acknowledged} icon={CheckCircle2} tone="warn" />
+      <Metric label={locale === "zh" ? "已关闭" : "Closed"} value={summary.closed} icon={ShieldCheck} tone="good" />
+    </div>
   );
 }
 
