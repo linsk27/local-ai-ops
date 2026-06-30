@@ -2543,14 +2543,16 @@ export function App(): JSX.Element {
                       <td className="metadata">{assetExpiry(asset, locale)}</td>
                       <td className="metadata renewal-cell"><RenewalPill asset={asset} locale={locale} /></td>
                       <td className="row-actions">
-                        <button type="button" className="text-button" onClick={() => void handleOpenAssetDetail(asset)} disabled={busyAction === `asset-detail-${asset.id}`}>
-                          {t.actions.details}
-                        </button>
-                        {assetConsoleUrl(asset) && (
-                          <a className="text-link" href={assetConsoleUrl(asset)} target="_blank" rel="noreferrer">
-                            {assetConsoleLabel(asset, locale)}
-                          </a>
-                        )}
+                        <div className="asset-row-actions">
+                          <button type="button" className="text-button" onClick={() => void handleOpenAssetDetail(asset)} disabled={busyAction === `asset-detail-${asset.id}`}>
+                            {t.actions.details}
+                          </button>
+                          {assetConsoleUrl(asset) && (
+                            <a className="text-link" href={assetConsoleUrl(asset)} target="_blank" rel="noreferrer">
+                              {assetConsoleLabel(asset, locale)}
+                            </a>
+                          )}
+                        </div>
                       </td>
                     </tr>
                   ))}
