@@ -154,6 +154,8 @@ const copy = {
       openConsole: "控制台",
       openService: "业务入口",
       openBtPanel: "打开面板",
+      btLoginHelper: "登录助手",
+      openAndCopyPassword: "打开并复制密码",
       saveBtPanel: "保存面板资料",
       copyUsername: "复制账号",
       copyPassword: "复制密码",
@@ -235,7 +237,8 @@ const copy = {
       environment: "环境变量",
       encryptedHint: "Key 已加密保存",
       keepKeyHint: "留空则保持当前 Key。",
-      passwordConfigured: "密码已加密保存"
+      passwordConfigured: "密码已加密保存",
+      btLoginHint: "外部宝塔登录页不会被自动填表或提交；请手动粘贴已复制的账号/密码。"
     }
   },
   en: {
@@ -317,6 +320,8 @@ const copy = {
       openConsole: "Console",
       openService: "Service",
       openBtPanel: "Open Panel",
+      btLoginHelper: "Login Helper",
+      openAndCopyPassword: "Open and Copy Password",
       saveBtPanel: "Save Panel Profile",
       copyUsername: "Copy Username",
       copyPassword: "Copy Password",
@@ -398,7 +403,8 @@ const copy = {
       environment: "Environment",
       encryptedHint: "Key encrypted",
       keepKeyHint: "Leave blank to keep the current key.",
-      passwordConfigured: "Password encrypted and saved"
+      passwordConfigured: "Password encrypted and saved",
+      btLoginHint: "The external BT login page is not auto-filled or submitted. Paste the copied username/password manually."
     }
   }
 } as const;
@@ -1084,6 +1090,31 @@ export function App(): JSX.Element {
     });
   }
 
+  function syncBtPanelProfileToAsset(profile: BtPanelProfile): void {
+    const updateAsset = (asset: Asset): Asset => {
+      if (asset.id !== profile.asset_id) {
+        return asset;
+      }
+      const currentPanel = metadataSection(asset.metadata_json, "bt_panel");
+      return {
+        ...asset,
+        metadata_json: {
+          ...asset.metadata_json,
+          bt_panel: {
+            ...currentPanel,
+            url: profile.url,
+            username: profile.username,
+            enabled: profile.enabled,
+            notes: profile.notes
+          }
+        }
+      };
+    };
+
+    setSelectedAsset((current) => (current?.id === profile.asset_id ? updateAsset(current) : current));
+    setAssets((current) => current.map(updateAsset));
+  }
+
   async function handleOpenAssetDetail(asset: Asset): Promise<void> {
     await withBusy(`asset-detail-${asset.id}`, async () => {
       const [freshAsset, profile, panelProfile] = await Promise.all([
@@ -1179,6 +1210,7 @@ export function App(): JSX.Element {
         notes: btPanelForm.notes
       });
       setBtPanelProfile(profile);
+      syncBtPanelProfileToAsset(profile);
       setBtPanelForm((current) => ({ ...current, password: "", clear_password: false }));
       setNotice(locale === "zh" ? "宝塔面板资料已加密保存。" : "BT panel profile saved with encrypted password storage.");
       return profile;
@@ -1201,13 +1233,44 @@ export function App(): JSX.Element {
   }
 
   async function handleCopyBtPassword(): Promise<void> {
+    await copyBtPanelPassword(locale === "zh" ? "宝塔密码已复制。页面不会显示明文。" : "BT panel password copied. The page will not display it.");
+  }
+
+  function openBtPanelWindow(): boolean {
+    const url = normalizeExternalUrl(btPanelProfile.url);
+    if (!url || !btPanelProfile.enabled) {
+      setNotice(locale === "zh" ? "先配置并启用宝塔面板地址。" : "Configure and enable the BT panel URL first.");
+      return false;
+    }
+    window.open(url, "_blank", "noopener,noreferrer");
+    return true;
+  }
+
+  function handleOpenBtPanel(): void {
+    if (openBtPanelWindow()) {
+      setNotice(locale === "zh" ? "已打开宝塔面板。需要登录时可复制账号或密码。" : "BT panel opened. Copy the username or password if login is required.");
+    }
+  }
+
+  async function handleOpenBtPanelAndCopyPassword(): Promise<void> {
+    if (!openBtPanelWindow()) {
+      return;
+    }
+    if (!btPanelProfile.password_configured) {
+      setNotice(locale === "zh" ? "已打开宝塔面板；当前未保存面板密码。" : "BT panel opened; no panel password is saved.");
+      return;
+    }
+    await copyBtPanelPassword(locale === "zh" ? "已打开宝塔面板，并复制密码到剪贴板。" : "BT panel opened and password copied to clipboard.");
+  }
+
+  async function copyBtPanelPassword(successMessage: string): Promise<void> {
     if (!selectedAsset || !btPanelProfile.password_configured) {
       return;
     }
     await withBusy(`bt-panel-password-${selectedAsset.id}`, async () => {
       const result = await apiPost<{ password: string }>(`/assets/${selectedAsset.id}/bt-panel/password/reveal`);
       await copyToClipboard(result.password);
-      setNotice(locale === "zh" ? "宝塔密码已复制。页面不会显示明文。" : "BT panel password copied. The page will not display it.");
+      setNotice(successMessage);
       return result;
     });
   }
@@ -1725,6 +1788,9 @@ export function App(): JSX.Element {
   }
 
   function renderBtPanel(asset: Asset): JSX.Element {
+    const canOpenPanel = Boolean(normalizeExternalUrl(btPanelProfile.url)) && btPanelProfile.enabled;
+    const canCopyUsername = Boolean(btPanelProfile.username);
+    const canCopyPassword = Boolean(btPanelProfile.password_configured);
     return (
       <section className="panel">
         <PanelHeader
@@ -1732,12 +1798,6 @@ export function App(): JSX.Element {
           action={
             <div className="panel-actions">
               {btPanelProfile.password_configured ? <StatusPill status="configured" locale={locale} /> : <StatusPill status="pending" locale={locale} />}
-              {btPanelProfile.url && btPanelProfile.enabled && (
-                <a className="secondary-button compact-button" href={btPanelProfile.url} target="_blank" rel="noreferrer">
-                  <ExternalLink aria-hidden="true" />
-                  {t.actions.openBtPanel}
-                </a>
-              )}
               <button type="button" className="secondary-button compact-button" onClick={() => setBtPanelModalOpen(true)}>
                 <KeyRound aria-hidden="true" />
                 {locale === "zh" ? "配置" : "Configure"}
@@ -1745,6 +1805,30 @@ export function App(): JSX.Element {
             </div>
           }
         />
+        <div className="bt-login-card">
+          <div>
+            <strong>{t.actions.btLoginHelper}</strong>
+            <span>{t.settings.btLoginHint}</span>
+          </div>
+          <div className="bt-login-actions">
+            <button type="button" className="secondary-button compact-button" onClick={handleOpenBtPanel} disabled={!canOpenPanel}>
+              <ExternalLink aria-hidden="true" />
+              {t.actions.openBtPanel}
+            </button>
+            <button type="button" className="secondary-button compact-button" onClick={() => void handleCopyBtUsername()} disabled={!canCopyUsername}>
+              <Copy aria-hidden="true" />
+              {t.actions.copyUsername}
+            </button>
+            <button type="button" className="secondary-button compact-button" onClick={() => void handleCopyBtPassword()} disabled={!canCopyPassword || busyAction === `bt-panel-password-${asset.id}`}>
+              <Copy aria-hidden="true" />
+              {t.actions.copyPassword}
+            </button>
+            <button type="button" className="primary-button compact-button" onClick={() => void handleOpenBtPanelAndCopyPassword()} disabled={!canOpenPanel || !canCopyPassword || busyAction === `bt-panel-password-${asset.id}`}>
+              <KeyRound aria-hidden="true" />
+              {t.actions.openAndCopyPassword}
+            </button>
+          </div>
+        </div>
         {renderDetailRows([
           {
             label: t.form.btPanelUrl,
@@ -1762,12 +1846,6 @@ export function App(): JSX.Element {
             value: (
               <span className="inline-secret-row">
                 <span className="mono">{btPanelProfile.username || "-"}</span>
-                {btPanelProfile.username && (
-                  <button type="button" className="text-button" onClick={() => void handleCopyBtUsername()}>
-                    <Copy aria-hidden="true" />
-                    {t.actions.copyUsername}
-                  </button>
-                )}
               </span>
             )
           },
@@ -1776,12 +1854,6 @@ export function App(): JSX.Element {
             value: (
               <span className="inline-secret-row">
                 <span>{btPanelProfile.password_configured ? t.settings.passwordConfigured : "-"}</span>
-                {btPanelProfile.password_configured && (
-                  <button type="button" className="text-button" onClick={() => void handleCopyBtPassword()} disabled={busyAction === `bt-panel-password-${asset.id}`}>
-                    <Copy aria-hidden="true" />
-                    {t.actions.copyPassword}
-                  </button>
-                )}
               </span>
             )
           },

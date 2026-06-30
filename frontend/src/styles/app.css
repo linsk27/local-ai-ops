@@ -2497,6 +2497,47 @@ tbody tr:hover {
   block-size: 15px;
 }
 
+.bt-login-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: var(--space-3);
+  margin-block-end: var(--space-3);
+  padding: var(--space-3);
+  border: var(--rule-thin) solid var(--color-rule);
+  border-radius: var(--radius-md);
+  background: linear-gradient(135deg, color-mix(in srgb, var(--color-accent-soft) 52%, var(--color-surface-raised)), var(--color-surface-raised));
+}
+
+.bt-login-card > div:first-child {
+  display: grid;
+  gap: var(--space-1);
+  min-inline-size: 0;
+}
+
+.bt-login-card strong {
+  font-size: var(--text-sm);
+}
+
+.bt-login-card span {
+  color: var(--color-ink-muted);
+  font-size: var(--text-xs);
+  line-height: 1.55;
+}
+
+.bt-login-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.bt-login-actions .primary-button,
+.bt-login-actions .secondary-button {
+  white-space: nowrap;
+}
+
 .access-validation {
   display: inline-flex;
   align-items: center;
@@ -3394,6 +3435,14 @@ code {
 
   .incident-actions {
     justify-content: flex-end;
+  }
+
+  .bt-login-card {
+    grid-template-columns: 1fr;
+  }
+
+  .bt-login-actions {
+    justify-content: flex-start;
   }
 
   .notice {
