@@ -75,9 +75,23 @@ export interface BtPanelProfile {
   notes: string;
 }
 
+export interface MonitorGroup {
+  id: number;
+  name: string;
+  type: string;
+  description: string;
+  status: string;
+  asset_ids: number[];
+  asset_count: number;
+  check_count: number;
+  failing_count: number;
+  last_checked_at: string | null;
+}
+
 export interface Check {
   id: number;
   asset_id: number | null;
+  group_id: number | null;
   name: string;
   type: string;
   target: string;
@@ -90,6 +104,8 @@ export interface Check {
   asset_name: string | null;
   asset_type: string | null;
   asset_region: string | null;
+  group_name: string | null;
+  group_type: string | null;
   last_status: string | null;
   last_message: string | null;
   last_value: number | null;

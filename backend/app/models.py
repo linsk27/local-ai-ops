@@ -75,6 +75,31 @@ class AssetRelation(Base, TimestampMixin):
     relation_type: Mapped[str] = mapped_column(String(80), nullable=False)
 
 
+class MonitorGroup(Base, TimestampMixin):
+    __tablename__ = "monitor_groups"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    name: Mapped[str] = mapped_column(String(160), nullable=False)
+    type: Mapped[str] = mapped_column(String(40), default="custom", nullable=False)
+    description: Mapped[str] = mapped_column(Text, default="", nullable=False)
+    status: Mapped[str] = mapped_column(String(40), default="active", nullable=False)
+
+    checks: Mapped[list["Check"]] = relationship(back_populates="group")
+    assets: Mapped[list["MonitorGroupAsset"]] = relationship(back_populates="group", cascade="all, delete-orphan")
+
+
+class MonitorGroupAsset(Base, TimestampMixin):
+    __tablename__ = "monitor_group_assets"
+    __table_args__ = (UniqueConstraint("group_id", "asset_id", name="uq_monitor_group_asset"),)
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    group_id: Mapped[int] = mapped_column(ForeignKey("monitor_groups.id", ondelete="CASCADE"), nullable=False)
+    asset_id: Mapped[int] = mapped_column(ForeignKey("assets.id", ondelete="CASCADE"), nullable=False)
+    role: Mapped[str] = mapped_column(String(40), default="primary", nullable=False)
+
+    group: Mapped[MonitorGroup] = relationship(back_populates="assets")
+
+
 class ServerAccessProfile(Base, TimestampMixin):
     __tablename__ = "server_access_profiles"
 
@@ -92,6 +117,7 @@ class Check(Base, TimestampMixin):
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True)
     asset_id: Mapped[int | None] = mapped_column(ForeignKey("assets.id"), nullable=True)
+    group_id: Mapped[int | None] = mapped_column(ForeignKey("monitor_groups.id"), nullable=True)
     name: Mapped[str] = mapped_column(String(160), nullable=False)
     type: Mapped[str] = mapped_column(String(40), nullable=False)
     target: Mapped[str] = mapped_column(String(500), nullable=False)
@@ -103,6 +129,7 @@ class Check(Base, TimestampMixin):
     config_json: Mapped[dict] = mapped_column(JSON, default=dict)
 
     asset: Mapped[Asset | None] = relationship(back_populates="checks")
+    group: Mapped[MonitorGroup | None] = relationship(back_populates="checks")
     results: Mapped[list["CheckResult"]] = relationship(back_populates="check", cascade="all, delete-orphan")
 
 

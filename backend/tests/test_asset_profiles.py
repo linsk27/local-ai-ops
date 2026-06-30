@@ -531,11 +531,20 @@ def test_default_checks_are_created_idempotently_for_server_asset() -> None:
         first_checks = first_response.json()
         assert {item["type"] for item in first_checks} == {"ssh", "tcp", "cloud_assistant"}
         assert {item["target"] for item in first_checks} == {"203.0.113.15:22", "df -h", "free -m"}
+        assert {item["group_name"] for item in first_checks} == {"defaults-server"}
+        assert len({item["group_id"] for item in first_checks}) == 1
+
+        groups = client.get("/api/monitor-groups").json()
+        group = next(item for item in groups if item["name"] == "defaults-server")
+        assert group["type"] == "server"
+        assert group["asset_ids"] == [asset_id]
+        assert group["check_count"] == len(first_checks)
 
         second_response = client.post(f"/api/assets/{asset_id}/checks/defaults")
         assert second_response.status_code == 200
         second_checks = second_response.json()
         assert [item["id"] for item in second_checks] == [item["id"] for item in first_checks]
+        assert [item["group_id"] for item in second_checks] == [item["group_id"] for item in first_checks]
 
 
 def test_default_checks_for_domain_create_https_probe() -> None:

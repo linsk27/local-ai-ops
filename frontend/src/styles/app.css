@@ -1622,9 +1622,88 @@ table {
 
 .monitoring-workspace {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) minmax(340px, 380px);
+  grid-template-columns: 240px minmax(0, 1fr) minmax(320px, 360px);
   gap: var(--space-4);
   min-block-size: 0;
+}
+
+.monitor-group-panel {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  min-block-size: 0;
+  overflow: hidden;
+}
+
+.monitor-group-list {
+  display: grid;
+  align-content: start;
+  gap: var(--space-2);
+  min-block-size: 0;
+  overflow: auto;
+  padding-inline-end: 2px;
+}
+
+.monitor-group-item {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 2px var(--space-2);
+  align-items: center;
+  inline-size: 100%;
+  min-block-size: 58px;
+  padding: var(--space-2) var(--space-3);
+  border: var(--rule-thin) solid var(--color-rule);
+  border-radius: var(--radius-sm);
+  background: color-mix(in srgb, var(--color-surface) 82%, var(--color-bg));
+  color: var(--color-text);
+  text-align: start;
+  cursor: pointer;
+}
+
+.monitor-group-item::before {
+  content: "";
+  position: absolute;
+  inset-block: 9px;
+  inset-inline-start: 0;
+  inline-size: 3px;
+  border-radius: 999px;
+  background: transparent;
+}
+
+.monitor-group-item:hover,
+.monitor-group-item.is-active {
+  border-color: color-mix(in srgb, var(--color-accent) 42%, var(--color-rule));
+  background: color-mix(in srgb, var(--color-accent-soft) 58%, var(--color-surface));
+}
+
+.monitor-group-item.is-active::before {
+  background: var(--color-accent);
+}
+
+.monitor-group-title {
+  overflow: hidden;
+  color: var(--color-heading);
+  font-weight: 700;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.monitor-group-meta {
+  color: var(--color-muted);
+  font-size: 12px;
+}
+
+.monitor-group-risk {
+  grid-row: 1 / span 2;
+  display: inline-grid;
+  place-items: center;
+  min-inline-size: 24px;
+  block-size: 24px;
+  border-radius: 999px;
+  background: var(--color-red-soft);
+  color: var(--color-red);
+  font-size: 12px;
+  font-weight: 700;
 }
 
 .monitoring-side-stack {

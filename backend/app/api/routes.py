@@ -8,7 +8,20 @@ from app.api.deps import DbSession
 from app.core.auth import create_access_token, is_default_admin_password, user_from_request, verify_admin_password
 from app.core.config import get_settings
 from app.core.security import decrypt_secret, encrypt_secret, mask_value, redact_text
-from app.models import Alert, AlertRule, Asset, AssetRelation, AuditLog, Check, CheckResult, CloudAccount, EncryptedSecret, ServerAccessProfile
+from app.models import (
+    Alert,
+    AlertRule,
+    Asset,
+    AssetRelation,
+    AuditLog,
+    Check,
+    CheckResult,
+    CloudAccount,
+    EncryptedSecret,
+    MonitorGroup,
+    MonitorGroupAsset,
+    ServerAccessProfile,
+)
 from app.schemas import (
     AccountTestResult,
     AiConfigRead,
@@ -37,6 +50,9 @@ from app.schemas import (
     KnowledgeAnswer,
     KnowledgeQuery,
     KnowledgeSummary,
+    MonitorGroupCreate,
+    MonitorGroupRead,
+    MonitorGroupUpdate,
     RenewalCenterResponse,
     ServerAccessProfileRead,
     ServerAccessSecretReveal,
@@ -951,13 +967,65 @@ def collect_asset_runtime(asset_id: int, db: DbSession) -> dict:
     return {"asset": _asset_read(asset, metrics, quality.get(asset.id, {})), "results": results}
 
 
+@router.get("/monitor-groups", response_model=list[MonitorGroupRead])
+def list_monitor_groups(db: DbSession) -> list[dict]:
+    groups = list(db.scalars(select(MonitorGroup).order_by(MonitorGroup.type, MonitorGroup.name)).all())
+    return [_monitor_group_read(db, group) for group in groups]
+
+
+@router.post("/monitor-groups", response_model=MonitorGroupRead)
+def create_monitor_group(payload: MonitorGroupCreate, db: DbSession) -> dict:
+    group = MonitorGroup(name=payload.name.strip(), type=payload.type, description=payload.description.strip(), status="active")
+    db.add(group)
+    db.flush()
+    _replace_monitor_group_assets(db, group, payload.asset_ids)
+    db.add(AuditLog(action="monitor_group.create", resource_type="monitor_group", resource_id=str(group.id), metadata_json={"name": group.name, "type": group.type}))
+    db.commit()
+    db.refresh(group)
+    return _monitor_group_read(db, group)
+
+
+@router.patch("/monitor-groups/{group_id}", response_model=MonitorGroupRead)
+def update_monitor_group(group_id: int, payload: MonitorGroupUpdate, db: DbSession) -> dict:
+    group = db.get(MonitorGroup, group_id)
+    if not group:
+        raise HTTPException(status_code=404, detail="Monitor group not found")
+    changes = payload.model_dump(exclude_unset=True)
+    if "name" in changes and changes["name"] is not None:
+        group.name = changes["name"].strip()
+    if "type" in changes and changes["type"] is not None:
+        group.type = changes["type"]
+    if "description" in changes and changes["description"] is not None:
+        group.description = changes["description"].strip()
+    if "asset_ids" in changes and changes["asset_ids"] is not None:
+        _replace_monitor_group_assets(db, group, changes["asset_ids"])
+    db.add(group)
+    db.add(AuditLog(action="monitor_group.update", resource_type="monitor_group", resource_id=str(group.id), metadata_json=changes))
+    db.commit()
+    db.refresh(group)
+    return _monitor_group_read(db, group)
+
+
+@router.delete("/monitor-groups/{group_id}")
+def delete_monitor_group(group_id: int, db: DbSession) -> dict:
+    group = db.get(MonitorGroup, group_id)
+    if not group:
+        raise HTTPException(status_code=404, detail="Monitor group not found")
+    db.execute(update(Check).where(Check.group_id == group.id).values(group_id=None))
+    db.delete(group)
+    db.add(AuditLog(action="monitor_group.delete", resource_type="monitor_group", resource_id=str(group.id), metadata_json={"name": group.name}))
+    db.commit()
+    return {"deleted": True, "id": group_id}
+
+
 @router.post("/assets/{asset_id}/checks/defaults", response_model=list[CheckRead])
 def create_default_checks(asset_id: int, db: DbSession) -> list[dict]:
     asset = _get_asset_or_404(db, asset_id)
+    group = _monitor_group_for_asset(db, asset)
     checks: list[Check] = []
     created = 0
     for spec in _default_check_specs(asset):
-        check, was_created = _get_or_create_check(db, asset, spec)
+        check, was_created = _get_or_create_check(db, asset, spec, group)
         checks.append(check)
         if was_created:
             created += 1
@@ -975,7 +1043,17 @@ def create_default_checks(asset_id: int, db: DbSession) -> list[dict]:
 
 @router.post("/checks", response_model=CheckRead)
 def create_check(payload: CheckCreate, db: DbSession) -> dict:
-    check = Check(**payload.model_dump())
+    data = payload.model_dump()
+    asset = _get_asset_or_404(db, payload.asset_id) if payload.asset_id else None
+    group = db.get(MonitorGroup, payload.group_id) if payload.group_id else None
+    if payload.group_id and not group:
+        raise HTTPException(status_code=404, detail="Monitor group not found")
+    if asset and group:
+        _ensure_monitor_group_asset(db, group, asset)
+    if asset and not group:
+        group = _monitor_group_for_asset(db, asset)
+        data["group_id"] = group.id
+    check = Check(**data)
     db.add(check)
     db.add(AuditLog(action="check.create", resource_type="check", resource_id="pending", metadata_json={"name": payload.name, "type": payload.type}))
     db.commit()
@@ -1013,6 +1091,13 @@ def update_check(check_id: int, payload: CheckUpdate, db: DbSession) -> dict:
     if not check:
         raise HTTPException(status_code=404, detail="Check not found")
     changes = payload.model_dump(exclude_unset=True)
+    if "group_id" in changes and changes["group_id"] is not None:
+        group = db.get(MonitorGroup, changes["group_id"])
+        if not group:
+            raise HTTPException(status_code=404, detail="Monitor group not found")
+        asset = db.get(Asset, check.asset_id) if check.asset_id else None
+        if asset:
+            _ensure_monitor_group_asset(db, group, asset)
     for key, value in changes.items():
         setattr(check, key, value)
     db.add(check)
@@ -1092,6 +1177,85 @@ def create_diagnosis(payload: DiagnosisRequest, db: DbSession):
     if not payload.alert_id and not payload.asset_id:
         raise HTTPException(status_code=400, detail="alert_id or asset_id is required")
     return generate_diagnosis(db, payload.alert_id, payload.asset_id, payload.locale)
+
+
+def _monitor_group_type_for_asset(asset: Asset) -> str:
+    if asset.type in {"ecs", "swas", "server"}:
+        return "server"
+    if asset.type in {"domain", "dns", "oss"}:
+        return asset.type
+    return "custom"
+
+
+def _ensure_monitor_group_asset(db: DbSession, group: MonitorGroup, asset: Asset) -> None:
+    existing = db.scalar(
+        select(MonitorGroupAsset).where(MonitorGroupAsset.group_id == group.id, MonitorGroupAsset.asset_id == asset.id)
+    )
+    if existing:
+        return
+    db.add(MonitorGroupAsset(group_id=group.id, asset_id=asset.id, role="primary"))
+    db.flush()
+
+
+def _replace_monitor_group_assets(db: DbSession, group: MonitorGroup, asset_ids: list[int]) -> None:
+    unique_asset_ids = list(dict.fromkeys(asset_ids))
+    if unique_asset_ids:
+        existing_ids = set(db.scalars(select(Asset.id).where(Asset.id.in_(unique_asset_ids))).all())
+        missing_ids = [asset_id for asset_id in unique_asset_ids if asset_id not in existing_ids]
+        if missing_ids:
+            raise HTTPException(status_code=404, detail=f"Assets not found: {missing_ids}")
+    db.execute(delete(MonitorGroupAsset).where(MonitorGroupAsset.group_id == group.id))
+    for asset_id in unique_asset_ids:
+        db.add(MonitorGroupAsset(group_id=group.id, asset_id=asset_id, role="primary"))
+    db.flush()
+
+
+def _monitor_group_for_asset(db: DbSession, asset: Asset) -> MonitorGroup:
+    group_type = _monitor_group_type_for_asset(asset)
+    group = db.scalar(
+        select(MonitorGroup)
+        .join(MonitorGroupAsset, MonitorGroupAsset.group_id == MonitorGroup.id)
+        .where(MonitorGroupAsset.asset_id == asset.id, MonitorGroup.type == group_type)
+        .order_by(MonitorGroup.id)
+    )
+    if group:
+        return group
+    group = MonitorGroup(name=asset.name, type=group_type, description=f"Default group for {asset.external_id}", status="active")
+    db.add(group)
+    db.flush()
+    _ensure_monitor_group_asset(db, group, asset)
+    return group
+
+
+def _monitor_group_read(db: DbSession, group: MonitorGroup) -> dict:
+    asset_ids = list(db.scalars(select(MonitorGroupAsset.asset_id).where(MonitorGroupAsset.group_id == group.id)).all())
+    checks = list(db.scalars(select(Check).where(Check.group_id == group.id)).all())
+    check_ids = [check.id for check in checks]
+    latest_by_check: dict[int, CheckResult] = {}
+    if check_ids:
+        rows = list(
+            db.scalars(
+                select(CheckResult)
+                .where(CheckResult.check_id.in_(check_ids))
+                .order_by(desc(CheckResult.checked_at))
+            ).all()
+        )
+        for result in rows:
+            latest_by_check.setdefault(result.check_id, result)
+    failing_count = sum(1 for result in latest_by_check.values() if result.status == "failed")
+    last_checked_at = max((result.checked_at for result in latest_by_check.values()), default=None)
+    return {
+        "id": group.id,
+        "name": group.name,
+        "type": group.type,
+        "description": group.description,
+        "status": group.status,
+        "asset_ids": asset_ids,
+        "asset_count": len(asset_ids),
+        "check_count": len(checks),
+        "failing_count": failing_count,
+        "last_checked_at": last_checked_at,
+    }
 
 
 def _default_check_specs(asset: Asset) -> list[dict]:
@@ -1188,7 +1352,7 @@ def _default_check_specs(asset: Asset) -> list[dict]:
     return specs
 
 
-def _get_or_create_check(db: DbSession, asset: Asset, spec: dict) -> tuple[Check, bool]:
+def _get_or_create_check(db: DbSession, asset: Asset, spec: dict, group: MonitorGroup | None = None) -> tuple[Check, bool]:
     check = db.scalar(
         select(Check).where(
             Check.asset_id == asset.id,
@@ -1197,8 +1361,12 @@ def _get_or_create_check(db: DbSession, asset: Asset, spec: dict) -> tuple[Check
         )
     )
     if check:
+        if group and check.group_id != group.id:
+            check.group_id = group.id
+            db.add(check)
+            db.flush()
         return check, False
-    check = Check(asset_id=asset.id, **spec)
+    check = Check(asset_id=asset.id, group_id=group.id if group else None, **spec)
     db.add(check)
     db.flush()
     return check, True
@@ -1398,8 +1566,14 @@ def _runtime_metrics_from_metadata(metadata: dict) -> dict:
 
 
 def _runtime_check_for_asset(db: DbSession, asset: Asset, target: str) -> Check:
+    group = _monitor_group_for_asset(db, asset)
     check = db.scalar(select(Check).where(Check.asset_id == asset.id, Check.type == "cloud_assistant", Check.target == target))
     if check:
+        if check.group_id != group.id:
+            check.group_id = group.id
+            db.add(check)
+            db.commit()
+            db.refresh(check)
         return check
     label = "disk usage" if target.startswith("df ") else "memory usage"
     config_json: dict = {}
@@ -1407,6 +1581,7 @@ def _runtime_check_for_asset(db: DbSession, asset: Asset, target: str) -> Check:
         config_json = {"instance_id": asset.external_id, "region": asset.region}
     check = Check(
         asset_id=asset.id,
+        group_id=group.id,
         name=f"{asset.name} {label}",
         type="cloud_assistant",
         target=target,
@@ -1440,6 +1615,7 @@ def _check_result_payload(result: CheckResult) -> dict:
 
 def _check_read(db: DbSession, check: Check) -> dict:
     asset = db.get(Asset, check.asset_id) if check.asset_id else None
+    group = db.get(MonitorGroup, check.group_id) if check.group_id else None
     latest_result = db.scalar(
         select(CheckResult).where(CheckResult.check_id == check.id).order_by(desc(CheckResult.checked_at))
     )
@@ -1452,6 +1628,7 @@ def _check_read(db: DbSession, check: Check) -> dict:
     return {
         "id": check.id,
         "asset_id": check.asset_id,
+        "group_id": check.group_id,
         "name": check.name,
         "type": check.type,
         "target": check.target,
@@ -1464,6 +1641,8 @@ def _check_read(db: DbSession, check: Check) -> dict:
         "asset_name": asset.name if asset else None,
         "asset_type": asset.type if asset else None,
         "asset_region": asset.region if asset else None,
+        "group_name": group.name if group else None,
+        "group_type": group.type if group else None,
         "last_status": latest_result.status if latest_result else None,
         "last_message": latest_result.message if latest_result else None,
         "last_value": latest_result.value if latest_result else None,

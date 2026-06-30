@@ -32,7 +32,7 @@ import { FormEvent, lazy, Suspense, useEffect, useMemo, useRef, useState } from 
 import { ApiAuthError, apiDelete, apiGet, apiPatch, apiPost, apiPut, clearAuthToken, getAuthToken, setAuthToken } from "./api";
 import { LoginPage, StartupScreen } from "./components/AuthScreens";
 import { FilterToolbar, type FilterToolbarFilter } from "./components/FilterToolbar";
-import type { AiConfig, AiConfigTestResult, Alert, Asset, AssetGraph, AuthMe, AuthSession, BtPanelProfile, Check, CheckResult, CloudAccount, DashboardSummary, Diagnosis, KnowledgeAnswer, KnowledgeSummary, RenewalCenter, RenewalItem, ServerAccessProfile } from "./types";
+import type { AiConfig, AiConfigTestResult, Alert, Asset, AssetGraph, AuthMe, AuthSession, BtPanelProfile, Check, CheckResult, CloudAccount, DashboardSummary, Diagnosis, KnowledgeAnswer, KnowledgeSummary, MonitorGroup, RenewalCenter, RenewalItem, ServerAccessProfile } from "./types";
 
 type View = "overview" | "accounts" | "assets" | "asset-detail" | "checks" | "alerts" | "diagnosis" | "knowledge" | "graph" | "renewals" | "ai-settings";
 type NavView = Exclude<View, "asset-detail">;
@@ -484,6 +484,7 @@ export function App(): JSX.Element {
   const [accounts, setAccounts] = useState<CloudAccount[]>([]);
   const [assets, setAssets] = useState<Asset[]>([]);
   const [checks, setChecks] = useState<Check[]>([]);
+  const [monitorGroups, setMonitorGroups] = useState<MonitorGroup[]>([]);
   const [results, setResults] = useState<CheckResult[]>([]);
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [diagnoses, setDiagnoses] = useState<LocalizedDiagnosis[]>([]);
@@ -501,6 +502,7 @@ export function App(): JSX.Element {
   const [assetPage, setAssetPage] = useState(1);
   const [assetPageSize, setAssetPageSize] = useState(10);
   const [selectedCheckFilter, setSelectedCheckFilter] = useState<CheckFilter>("all");
+  const [selectedMonitorGroup, setSelectedMonitorGroup] = useState("all");
   const [checkPage, setCheckPage] = useState(1);
   const [alertPage, setAlertPage] = useState(1);
   const [authChecked, setAuthChecked] = useState(false);
@@ -533,6 +535,7 @@ export function App(): JSX.Element {
     type: "http",
     target: "",
     asset_id: "",
+    group_id: "",
     interval_seconds: "300",
     threshold: "",
     failure_threshold: "2"
@@ -667,9 +670,33 @@ export function App(): JSX.Element {
     [checks]
   );
   const alertSummary = useMemo(() => summarizeAlerts(alerts), [alerts]);
+  const monitorGroupOptions = useMemo(
+    () => [
+      { id: "all", name: locale === "zh" ? "全部监控" : "All checks", type: "all", checkCount: checks.length, failingCount: checkSummary.failing },
+      {
+        id: "ungrouped",
+        name: locale === "zh" ? "未分组" : "Ungrouped",
+        type: "custom",
+        checkCount: checks.filter((check) => !check.group_id).length,
+        failingCount: checks.filter((check) => !check.group_id && checkStatusForDisplay(check) === "failed").length
+      },
+      ...monitorGroups.map((group) => ({
+        id: String(group.id),
+        name: group.name,
+        type: group.type,
+        checkCount: group.check_count,
+        failingCount: group.failing_count
+      }))
+    ],
+    [checkSummary.failing, checks, locale, monitorGroups]
+  );
+  const groupScopedChecks = useMemo(
+    () => checks.filter((check) => checkMatchesGroup(check, selectedMonitorGroup)),
+    [checks, selectedMonitorGroup]
+  );
   const filteredChecks = useMemo(
-    () => checks.filter((check) => checkMatchesFilter(check, selectedCheckFilter)),
-    [checks, selectedCheckFilter]
+    () => groupScopedChecks.filter((check) => checkMatchesFilter(check, selectedCheckFilter)),
+    [groupScopedChecks, selectedCheckFilter]
   );
   const listPageSize = 10;
   const checkPageTotal = Math.max(1, Math.ceil(filteredChecks.length / listPageSize));
@@ -712,7 +739,16 @@ export function App(): JSX.Element {
 
   useEffect(() => {
     setCheckPage(1);
-  }, [selectedCheckFilter]);
+  }, [selectedCheckFilter, selectedMonitorGroup]);
+
+  useEffect(() => {
+    if (selectedMonitorGroup === "all" || selectedMonitorGroup === "ungrouped") {
+      return;
+    }
+    if (!monitorGroups.some((group) => String(group.id) === selectedMonitorGroup)) {
+      setSelectedMonitorGroup("all");
+    }
+  }, [monitorGroups, selectedMonitorGroup]);
 
   useEffect(() => {
     setAssetPage((page) => Math.min(Math.max(page, 1), assetPageTotal));
@@ -757,11 +793,12 @@ export function App(): JSX.Element {
 
   async function refreshAll(options: { quiet?: boolean; throwOnError?: boolean } = {}): Promise<void> {
     try {
-      const [nextDashboard, nextAccounts, nextAssets, nextChecks, nextResults, nextAlerts, nextAiConfig, nextKnowledge, nextGraph, nextRenewals] = await Promise.all([
+      const [nextDashboard, nextAccounts, nextAssets, nextChecks, nextMonitorGroups, nextResults, nextAlerts, nextAiConfig, nextKnowledge, nextGraph, nextRenewals] = await Promise.all([
         apiGet<DashboardSummary>("/dashboard"),
         apiGet<CloudAccount[]>("/cloud-accounts"),
         apiGet<Asset[]>("/assets"),
         apiGet<Check[]>("/checks"),
+        apiGet<MonitorGroup[]>("/monitor-groups"),
         apiGet<CheckResult[]>("/check-results"),
         apiGet<Alert[]>("/alerts"),
         apiGet<AiConfig>("/settings/ai"),
@@ -779,6 +816,7 @@ export function App(): JSX.Element {
         return nextAssets.find((asset) => asset.id === current.id) ?? current;
       });
       setChecks(nextChecks);
+      setMonitorGroups(nextMonitorGroups);
       setResults(nextResults);
       setAlerts(nextAlerts);
       setAiConfig(nextAiConfig);
@@ -1333,12 +1371,22 @@ export function App(): JSX.Element {
     }
   }
 
+  function monitorGroupIdForAsset(assetId: string): string {
+    const numericAssetId = Number(assetId);
+    if (!numericAssetId) {
+      return "";
+    }
+    const group = monitorGroups.find((item) => item.asset_ids.includes(numericAssetId));
+    return group ? String(group.id) : "";
+  }
+
   function handleCreateCheckFromAsset(asset: Asset, type: string = "cloud_assistant"): void {
     setCheckForm({
       name: locale === "zh" ? `${asset.name} 监控` : `${asset.name} check`,
       type,
       target: defaultCheckTarget(asset, type, accessForm.host || accessProfile.host),
       asset_id: String(asset.id),
+      group_id: monitorGroupIdForAsset(String(asset.id)),
       threshold: type === "cloud_assistant" || type === "ecs_metric" ? "85" : "",
       interval_seconds: "300",
       failure_threshold: "2"
@@ -1352,6 +1400,7 @@ export function App(): JSX.Element {
     setCheckForm((current) => ({
       ...current,
       asset_id: assetId,
+      group_id: monitorGroupIdForAsset(assetId),
       target: asset ? defaultCheckTarget(asset, current.type) : current.target
     }));
   }
@@ -1373,6 +1422,7 @@ export function App(): JSX.Element {
       type: checkForm.type,
       target: checkForm.target.trim(),
       asset_id: checkForm.asset_id ? Number(checkForm.asset_id) : null,
+      group_id: checkForm.group_id ? Number(checkForm.group_id) : null,
       threshold: checkForm.threshold ? Number(checkForm.threshold) : null,
       failure_threshold: Number(checkForm.failure_threshold),
       interval_seconds: Number(checkForm.interval_seconds),
@@ -1392,6 +1442,7 @@ export function App(): JSX.Element {
         type: "http",
         target: "",
         asset_id: "",
+        group_id: "",
         interval_seconds: "300",
         threshold: "",
         failure_threshold: "2"
@@ -2587,6 +2638,25 @@ export function App(): JSX.Element {
             </section>
 
             <section className="monitoring-workspace">
+            <section className="panel monitor-group-panel">
+              <PanelHeader title={locale === "zh" ? "监控组" : "Monitor Groups"} />
+              <div className="monitor-group-list" role="list" aria-label={locale === "zh" ? "监控组列表" : "Monitor group list"}>
+                {monitorGroupOptions.map((group) => (
+                  <button
+                    type="button"
+                    key={group.id}
+                    className={`monitor-group-item ${selectedMonitorGroup === group.id ? "is-active" : ""}`}
+                    onClick={() => setSelectedMonitorGroup(group.id)}
+                  >
+                    <span className="monitor-group-title">{group.name}</span>
+                    <span className="monitor-group-meta">
+                      {monitorGroupTypeLabel(group.type, locale)} · {group.checkCount}
+                    </span>
+                    {group.failingCount > 0 && <span className="monitor-group-risk">{group.failingCount}</span>}
+                  </button>
+                ))}
+              </div>
+            </section>
             <section className="panel table-panel checks-panel">
               <PanelHeader
                 title={locale === "zh" ? "监控中心" : "Monitoring Center"}
@@ -2654,6 +2724,7 @@ export function App(): JSX.Element {
                         <div className="check-asset-cell">
                           <strong>{check.asset_name || "-"}</strong>
                           <span>{check.asset_type ? `${assetTypeLabel(check.asset_type, locale)} / ${check.asset_region || "-"}` : "-"}</span>
+                          {check.group_name && <span>{locale === "zh" ? "组" : "Group"} / {check.group_name}</span>}
                         </div>
                       </td>
                       <td className="mono target-cell">{check.target}</td>
@@ -3276,6 +3347,17 @@ export function App(): JSX.Element {
                   {assets.map((asset) => (
                     <option key={asset.id} value={asset.id}>
                       {asset.name}
+                    </option>
+                  ))}
+                </select>
+              </label>
+              <label>
+                <span>{locale === "zh" ? "监控组" : "Monitor Group"}</span>
+                <select value={checkForm.group_id} onChange={(event) => setCheckForm({ ...checkForm, group_id: event.target.value })}>
+                  <option value="">{locale === "zh" ? "自动归组" : "Auto group"}</option>
+                  {monitorGroups.map((group) => (
+                    <option key={group.id} value={group.id}>
+                      {group.name}
                     </option>
                   ))}
                 </select>
@@ -4231,6 +4313,36 @@ function checkMatchesFilter(check: Check, filter: CheckFilter): boolean {
     return check.enabled && Boolean(check.open_alert_id || check.last_status === "failed");
   }
   return check.enabled && check.last_status === "ok" && !check.open_alert_id;
+}
+
+function checkMatchesGroup(check: Check, groupId: string): boolean {
+  if (groupId === "all") {
+    return true;
+  }
+  if (groupId === "ungrouped") {
+    return !check.group_id;
+  }
+  return String(check.group_id) === groupId;
+}
+
+function monitorGroupTypeLabel(type: string, locale: Locale): string {
+  const zh: Record<string, string> = {
+    all: "全部",
+    server: "服务器",
+    domain: "域名",
+    oss: "OSS",
+    dns: "DNS",
+    custom: "自定义"
+  };
+  const en: Record<string, string> = {
+    all: "All",
+    server: "Server",
+    domain: "Domain",
+    oss: "OSS",
+    dns: "DNS",
+    custom: "Custom"
+  };
+  return (locale === "zh" ? zh : en)[type] || type;
 }
 
 function checkFilterLabel(filter: CheckFilter, locale: Locale): string {

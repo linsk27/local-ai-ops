@@ -165,6 +165,36 @@ class SyncResponse(BaseModel):
     message: str
 
 
+MonitorGroupType = Literal["server", "domain", "oss", "dns", "custom"]
+
+
+class MonitorGroupCreate(BaseModel):
+    name: str = Field(min_length=1, max_length=160)
+    type: MonitorGroupType = "custom"
+    description: str = Field(default="", max_length=1000)
+    asset_ids: list[int] = Field(default_factory=list)
+
+
+class MonitorGroupUpdate(BaseModel):
+    name: str | None = Field(default=None, min_length=1, max_length=160)
+    type: MonitorGroupType | None = None
+    description: str | None = Field(default=None, max_length=1000)
+    asset_ids: list[int] | None = None
+
+
+class MonitorGroupRead(OrmModel):
+    id: int
+    name: str
+    type: str
+    description: str
+    status: str
+    asset_ids: list[int] = Field(default_factory=list)
+    asset_count: int
+    check_count: int
+    failing_count: int
+    last_checked_at: datetime | None = None
+
+
 CheckType = Literal["http", "tcp", "ssh", "ecs_metric", "cloud_assistant"]
 
 
@@ -173,6 +203,7 @@ class CheckCreate(BaseModel):
     type: CheckType
     target: str = Field(min_length=1, max_length=500)
     asset_id: int | None = None
+    group_id: int | None = None
     interval_seconds: int = Field(default=60, ge=15, le=86400)
     timeout_seconds: int = Field(default=5, ge=1, le=60)
     threshold: float | None = None
@@ -181,6 +212,7 @@ class CheckCreate(BaseModel):
 
 
 class CheckUpdate(BaseModel):
+    group_id: int | None = None
     enabled: bool | None = None
     interval_seconds: int | None = Field(default=None, ge=15, le=86400)
     timeout_seconds: int | None = Field(default=None, ge=1, le=60)
@@ -191,6 +223,7 @@ class CheckUpdate(BaseModel):
 class CheckRead(OrmModel):
     id: int
     asset_id: int | None
+    group_id: int | None = None
     name: str
     type: str
     target: str
@@ -203,6 +236,8 @@ class CheckRead(OrmModel):
     asset_name: str | None = None
     asset_type: str | None = None
     asset_region: str | None = None
+    group_name: str | None = None
+    group_type: str | None = None
     last_status: str | None = None
     last_message: str | None = None
     last_value: float | None = None
