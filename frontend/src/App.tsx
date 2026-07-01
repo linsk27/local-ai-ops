@@ -917,7 +917,11 @@ export function App(): JSX.Element {
         username: loginForm.username.trim(),
         password: loginForm.password
       });
-      setAuthToken(session.access_token);
+      const accessToken = session.access_token?.trim();
+      if (!accessToken) {
+        throw new Error(locale === "zh" ? "登录接口未返回 token" : "Login response did not include a token");
+      }
+      setAuthToken(accessToken);
       setAuthMe({
         username: session.username,
         auth_enabled: true,
