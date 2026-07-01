@@ -10,6 +10,7 @@ from app.main import app
 from app.models import Asset, AuditLog, EncryptedSecret, ServerAccessProfile
 from app.services import check_runner
 from app.services.monitoring import ProbeResult
+from app.services.seed import purge_legacy_sample_data
 
 
 def test_asset_ops_and_access_profile_are_persisted_without_returning_secret() -> None:
@@ -132,6 +133,27 @@ def test_asset_ops_and_access_profile_are_persisted_without_returning_secret() -
         assert clear_response.status_code == 200
         assert clear_response.json()["secret_configured"] is False
         assert client.post(f"/api/assets/{asset_id}/access-profile/secret/reveal").status_code == 400
+
+
+def test_startup_cleanup_keeps_local_user_assets() -> None:
+    with SessionLocal() as db:
+        asset = Asset(
+            provider="aliyun",
+            type="swas",
+            name="local-user-server",
+            external_id=f"manual-{uuid4().hex[:8]}",
+            region="cn-hangzhou",
+            status="running",
+            metadata_json={"public_ip_address": "203.0.113.16"},
+        )
+        db.add(asset)
+        db.commit()
+        db.refresh(asset)
+        asset_id = asset.id
+
+        purge_legacy_sample_data(db)
+
+        assert db.get(Asset, asset_id) is not None
 
 
 def test_bt_panel_profile_is_encrypted_and_reveal_is_explicit() -> None:

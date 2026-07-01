@@ -4,11 +4,14 @@ from sqlalchemy.orm import Session
 from app.models import Alert, Asset, Check, CheckResult, MonitorGroup, MonitorGroupAsset
 
 
+LEGACY_SAMPLE_EXTERNAL_IDS = {"i-demo-web-01", "domain-demo-example-cn"}
+
+
 def purge_legacy_sample_data(db: Session) -> None:
     legacy_assets = db.scalars(
         select(Asset).where(
             Asset.provider == "aliyun",
-            (Asset.cloud_account_id.is_(None)) | (Asset.external_id.in_(["i-demo-web-01", "domain-demo-example-cn"])),
+            Asset.external_id.in_(LEGACY_SAMPLE_EXTERNAL_IDS),
         )
     ).all()
     asset_ids = [asset.id for asset in legacy_assets]
