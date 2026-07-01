@@ -1,5 +1,5 @@
 const envApiBaseUrl = import.meta.env.VITE_API_BASE_URL?.trim();
-const API_BASE_URL = envApiBaseUrl || `${window.location.protocol}//${window.location.hostname}:8000/api`;
+const API_BASE_URL = resolveApiBaseUrl(envApiBaseUrl);
 const API_TOKEN_KEY = "local-ai-ops-token";
 let memoryAuthToken = "";
 
@@ -132,4 +132,30 @@ function removeTokenFromStorage(name: BrowserStorageName): void {
   } catch {
     // Storage cleanup is best-effort; memoryAuthToken is the source of truth for this session.
   }
+}
+
+function resolveApiBaseUrl(envUrl?: string): string {
+  const fallback = `${window.location.protocol}//${window.location.hostname}:8000/api`;
+  if (!envUrl) {
+    return fallback;
+  }
+
+  try {
+    const parsed = new URL(envUrl);
+    if (isLoopbackHost(window.location.hostname) && isLoopbackHost(parsed.hostname)) {
+      parsed.hostname = window.location.hostname;
+      return trimTrailingSlash(parsed.toString());
+    }
+    return trimTrailingSlash(envUrl);
+  } catch {
+    return trimTrailingSlash(envUrl) || fallback;
+  }
+}
+
+function isLoopbackHost(host: string): boolean {
+  return host === "localhost" || host === "127.0.0.1" || host === "::1" || host === "[::1]";
+}
+
+function trimTrailingSlash(value: string): string {
+  return value.replace(/\/$/, "");
 }

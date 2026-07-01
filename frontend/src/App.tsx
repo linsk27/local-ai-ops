@@ -798,13 +798,13 @@ export function App(): JSX.Element {
         apiGet<CloudAccount[]>("/cloud-accounts"),
         apiGet<Asset[]>("/assets"),
         apiGet<Check[]>("/checks"),
-        apiGet<MonitorGroup[]>("/monitor-groups"),
+        optionalApiGet<MonitorGroup[]>("/monitor-groups", []),
         apiGet<CheckResult[]>("/check-results"),
         apiGet<Alert[]>("/alerts"),
         apiGet<AiConfig>("/settings/ai"),
-        apiGet<KnowledgeSummary>("/knowledge/summary"),
-        apiGet<AssetGraph>("/asset-graph"),
-        apiGet<RenewalCenter>("/renewals")
+        optionalApiGet<KnowledgeSummary>("/knowledge/summary", initialKnowledgeSummary),
+        optionalApiGet<AssetGraph>("/asset-graph", initialAssetGraph),
+        optionalApiGet<RenewalCenter>("/renewals", initialRenewalCenter)
       ]);
       setDashboard(nextDashboard);
       setAccounts(nextAccounts);
@@ -844,6 +844,18 @@ export function App(): JSX.Element {
       if (options.throwOnError) {
         throw error;
       }
+    }
+  }
+
+  async function optionalApiGet<T>(path: string, fallback: T): Promise<T> {
+    try {
+      return await apiGet<T>(path);
+    } catch (error) {
+      if (error instanceof ApiAuthError) {
+        throw error;
+      }
+      console.warn(`Optional API ${path} failed`, error);
+      return fallback;
     }
   }
 
